@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SGP AUDIT v18.8 | MCR Controle Crítico</title>
+    <title>SGP AUDIT v18.9 | MCR Controle Crítico</title>
     
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -17,6 +17,7 @@
 
     <script type="module">
         import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm'
+        // Credenciais Oficiais - Projeto Thyêgo MCR
         window.supabase = createClient(
             'https://kqzxrywfrtbyxwgvggsd.supabase.co', 
             'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtxenhyeXdmcnRieXh3Z3ZnZ3NkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg2NjE4NjksImV4cCI6MjA4NDIzNzg2OX0.2XCcj9dFQqMHooUmF1D1Yuy9CvKPvabMO0Ai3A_Mto8'
@@ -35,17 +36,18 @@
         .timer-glow { text-shadow: 0 0 15px rgba(5, 150, 105, 0.3); }
         .pause-glow { text-shadow: 0 0 20px rgba(245, 158, 11, 0.4); }
         input:focus, select:focus, textarea:focus { border-color: #059669; outline: none; ring: 2px; ring-color: rgba(5, 150, 105, 0.2); }
-        .btn-active:active { transform: scale(0.97); transition: 0.1s; }
         input, textarea { text-transform: uppercase; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
-        .fit-timer { font-size: clamp(3rem, 15vw, 6rem); }
+        .fit-timer { font-size: clamp(2.5rem, 12vw, 5rem); }
+        .screen-fade { animation: fadeIn 0.2s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useMemo, useRef } = React;
+        const { useState, useEffect, useMemo } = React;
 
         const TARGET_EMAIL = "thyego.engflorestalmcr@gmail.com";
         const TIPOS_PODA_DATA = [
@@ -95,12 +97,11 @@
         const Label = ({ children, required }) => <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1.5 tracking-wider">{children} {required && <span className="text-red-500">*</span>}</label>;
 
         const PhotoUpload = ({ label, help, preview, onCapture, icon="fa-camera", fullWidth = false, processing = false }) => (
-            <label className={`relative ${fullWidth ? 'h-40' : 'h-28'} border-2 border-dashed rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer ${preview ? 'border-audit-500 bg-emerald-50' : 'border-slate-300 bg-slate-50'} ${processing ? 'animate-pulse opacity-60' : ''}`}>
+            <label className={`relative ${fullWidth ? 'h-40' : 'h-28'} border-2 border-dashed rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer ${preview ? 'border-audit-500 bg-emerald-50' : 'border-slate-300 bg-slate-50'} ${processing ? 'animate-pulse' : ''}`}>
                 {preview ? <img src={preview} className="absolute inset-0 w-full h-full object-cover rounded-xl" /> : (
                     <div className="text-center p-2">
                         <i className={`fas ${processing ? 'fa-spinner fa-spin' : icon} text-2xl text-slate-300 mb-1`}></i>
                         <div className="text-[9px] font-black text-slate-600 uppercase leading-tight">{processing ? 'PROCESSANDO...' : label}</div>
-                        {!processing && <div className="text-[7px] text-slate-400 mt-1 uppercase italic leading-tight">{help}</div>}
                     </div>
                 )}
                 <input type="file" className="hidden" accept="image/*" disabled={processing} onChange={e => onCapture(e.target.files[0])} />
@@ -120,46 +121,62 @@
             const [isExporting, setIsExporting] = useState(false);
             const [isPhotoProcessing, setIsPhotoProcessing] = useState(false);
 
-            // Carregamento Inicial Robusto
+            // 1. Carregamento e Recuperação de Estado
             useEffect(() => {
                 const load = async () => {
                     const s = await idbKeyval.get('mcr_shift_v18_final');
                     const a = await idbKeyval.get('mcr_active_v18_final');
                     const l = await idbKeyval.get('mcr_logs_v18_final') || [];
-                    const currentView = await idbKeyval.get('mcr_current_view_v18');
+                    const v = await idbKeyval.get('mcr_current_view_v18');
                     
                     if (s) setShift(s);
-                    if (a) {
-                        setActiveAction(a);
-                        if (a.startTime) setElapsed(Math.floor((Date.now() - a.startTime) / 1000));
-                    }
+                    if (a) setActiveAction(a);
                     setLogs(l);
                     
-                    if (currentView) setView(currentView);
+                    if (v) setView(v);
                     else setView(s?.active ? 'dashboard' : 'setup');
                 };
                 load();
             }, []);
 
-            // Salva Estado e View para evitar perda em caso de crash
+            // 2. Persistência Contínua
             useEffect(() => {
                 if (view !== 'loading') idbKeyval.set('mcr_current_view_v18', view);
-            }, [view]);
-
-            useEffect(() => {
                 if (shift?.active) idbKeyval.set('mcr_shift_v18_final', shift);
                 if (activeAction) idbKeyval.set('mcr_active_v18_final', activeAction);
                 else idbKeyval.del('mcr_active_v18_final');
                 idbKeyval.set('mcr_logs_v18_final', logs);
-            }, [shift, activeAction, logs]);
+            }, [view, shift, activeAction, logs]);
 
-            // MOTOR DE SINCRONISMO INVISÍVEL
+            // 3. Cronômetros
+            useEffect(() => {
+                const timer = setInterval(() => {
+                    if (shift?.active && shift?.journeyStartTime) setJourneyElapsed(Math.floor((Date.now() - shift.journeyStartTime) / 1000));
+                    if (activeAction?.startTime) {
+                        setElapsed(Math.floor((Date.now() - activeAction.startTime) / 1000));
+                        if (activeAction.isPaused && activeAction.pauseStartTime) {
+                            setPauseElapsed(Math.floor((Date.now() - activeAction.pauseStartTime) / 1000));
+                        }
+                    }
+                }, 1000);
+                return () => clearInterval(timer);
+            }, [activeAction, shift]);
+
+            // 4. GPS
+            useEffect(() => {
+                const watchId = navigator.geolocation.watchPosition(
+                    (pos) => setGps({ lat: pos.coords.latitude.toFixed(6), lng: pos.coords.longitude.toFixed(6) }),
+                    null, { enableHighAccuracy: true }
+                );
+                return () => navigator.geolocation.clearWatch(watchId);
+            }, []);
+
+            // 5. Motor de Sincronismo Supabase
             useEffect(() => {
                 const autoSync = setInterval(async () => {
                     if (navigator.onLine && window.supabase && shift?.active) {
                         const allLogs = await idbKeyval.get('mcr_logs_v18_final') || [];
                         const toSync = allLogs.filter(l => !l.nuvem_ok);
-
                         for (let item of toSync) {
                             const hmEfetivo = item.executionDurationSec - (item.totalPausedSeconds || 0);
                             const { error } = await window.supabase.from('registros_poda').insert([{
@@ -171,19 +188,13 @@
                                 auxiliares: shift.auxiliares,
                                 demanda_origem: item.demandSource,
                                 os_id: item.osId,
-                                copel_necessario: item.copelRequired,
                                 especie: item.species,
                                 cap_cm: item.cap,
                                 altura_m: item.height,
                                 tipos_poda: item.pruningTypes,
-                                hm_preparo_seg: item.formDurationSec,
                                 hm_manejo_seg: hmEfetivo,
                                 pausa_total_seg: item.totalPausedSeconds,
                                 coordenadas: `POINT(${gps.lng} ${gps.lat})`,
-                                status_servico: item.status,
-                                relato_impedimento: item.problemReport,
-                                foto_dds_base64: shift.foto_unificada,
-                                foto_impedimento: item.photoProblem,
                                 fotos_antes: item.photosBefore,
                                 fotos_depois: item.photosAfter
                             }]);
@@ -195,90 +206,31 @@
                 return () => clearInterval(autoSync);
             }, [shift, gps]);
 
-            // Cronômetros
-            useEffect(() => {
-                const timer = setInterval(() => {
-                    if (shift?.active && shift?.journeyStartTime) setJourneyElapsed(Math.floor(((shift.journeyEndTime || Date.now()) - shift.journeyStartTime) / 1000));
-                    if (activeAction?.startTime) {
-                        setElapsed(Math.floor((Date.now() - activeAction.startTime) / 1000));
-                        if (activeAction.isPaused && activeAction.pauseStartTime) setPauseElapsed(Math.floor((Date.now() - activeAction.pauseStartTime) / 1000));
-                    }
-                }, 1000);
-                return () => clearInterval(timer);
-            }, [activeAction, shift]);
-
-            // GPS
-            useEffect(() => {
-                const watchId = navigator.geolocation.watchPosition(
-                    (pos) => setGps({ lat: pos.coords.latitude.toFixed(6), lng: pos.coords.longitude.toFixed(6) }),
-                    null, { enableHighAccuracy: true }
-                );
-                return () => navigator.geolocation.clearWatch(watchId);
-            }, []);
-
+            // 6. Otimização de Fotos Anti-Crash
             const processPhoto = async (file) => {
                 if (!file) return null;
                 setIsPhotoProcessing(true);
-                // Configurações mais agressivas para evitar estouro de memória no mobile
-                const options = { maxSizeMB: 0.08, maxWidthOrHeight: 800, useWebWorker: true, initialQuality: 0.5 };
                 try {
+                    const options = { maxSizeMB: 0.05, maxWidthOrHeight: 800, useWebWorker: true, initialQuality: 0.4 };
                     const compressed = await imageCompression(file, options);
                     return new Promise(r => { 
                         const reader = new FileReader(); 
                         reader.readAsDataURL(compressed); 
-                        reader.onloadend = () => {
-                            setIsPhotoProcessing(false);
-                            r(reader.result);
-                        }; 
+                        reader.onloadend = () => { setIsPhotoProcessing(false); r(reader.result); }; 
                     });
-                } catch (e) {
-                    setIsPhotoProcessing(false);
-                    return null;
-                }
+                } catch (e) { setIsPhotoProcessing(false); return null; }
             };
 
             const stats = useMemo(() => {
-                const treeLogs = logs.filter(l => l.type === 'tree' && l.status !== 'IMPEDIDO');
-                const hmEfetivo = treeLogs.reduce((acc, log) => acc + (log.formDurationSec || 0) + ((log.executionDurationSec || 0) - (log.totalPausedSeconds || 0)), 0);
-                return { 
-                    work: hmEfetivo, 
-                    journey: journeyElapsed, 
-                    totalTrees: logs.filter(l => l.type === 'tree').length,
-                    treesPruned: treeLogs.filter(t => t.pruningTypes?.some(p => !p.includes('CORTE'))).length,
-                    treesSuppressed: treeLogs.filter(t => t.pruningTypes?.some(p => p.includes('CORTE'))).length
-                };
+                const treeLogs = logs.filter(l => l.type === 'tree');
+                const hm = treeLogs.reduce((acc, l) => acc + (l.executionDurationSec - (l.totalPausedSeconds || 0)), 0);
+                return { work: hm, journey: journeyElapsed, totalTrees: treeLogs.length };
             }, [logs, journeyElapsed]);
-
-            const handleFinalExport = async () => {
-                setIsExporting(true);
-                try {
-                    const zip = new JSZip();
-                    let csv = "DATA;STATUS;OS;ESPECIE;CAP;ALTURA;TIPOS_PODA;HM_EFETIVO_SEG;PAUSAS_SEG;GPS\n";
-                    logs.forEach(l => {
-                        const hm = (l.executionDurationSec || 0) - (l.totalPausedSeconds || 0);
-                        csv += `${shift.journeyDate};${l.status};${l.osId || 'ROTINA'};${l.species};${l.cap};${l.height};${l.pruningTypes?.join('|')};${hm};${l.totalPausedSeconds || 0};${l.coords || ''}\n`;
-                    });
-                    zip.file("01_RELATORIO_PARA_EXCEL.csv", csv);
-
-                    const imgs = zip.folder("02_FOTOS");
-                    logs.forEach((l, idx) => {
-                        l.photosBefore?.forEach((p, i) => { if(p) imgs.file(`ARV_${idx+1}_ANTES_${i+1}.jpg`, p.split(',')[1], {base64: true}) });
-                        l.photosAfter?.forEach((p, i) => { if(p) imgs.file(`ARV_${idx+1}_DEPOIS_${i+1}.jpg`, p.split(',')[1], {base64: true}) });
-                    });
-
-                    const blob = await zip.generateAsync({type:"blob"});
-                    const a = document.createElement("a");
-                    a.href = URL.createObjectURL(blob);
-                    a.download = `RAD_PODA_MCR_${shift.operador}.zip`;
-                    a.click();
-                    await idbKeyval.clear(); window.location.reload();
-                } catch (e) { alert(e.message); } finally { setIsExporting(false); }
-            };
 
             // --- TELAS ---
 
             if (view === 'setup' || view === 'edit_team') return (
-                <div className="p-6 pb-20 no-scrollbar">
+                <div className="p-6 pb-20 screen-fade">
                     <div className="text-center mb-8"><i className="fas fa-helmet-safety text-audit-600 text-5xl mb-4"></i><h1 className="text-2xl font-black text-slate-800 uppercase">Abertura de Turno</h1></div>
                     <Card>
                         <Label required>Equipe Técnica</Label>
@@ -294,123 +246,122 @@
                     <Card>
                         <Label required>Auxiliares</Label>
                         {shift.auxiliares.map((aux, idx) => (
-                            <div key={idx} className="flex gap-2 mb-2">
-                                <input className="flex-1 p-4 border-2 rounded-2xl text-sm font-black" placeholder={`AUXILIAR ${idx+1}`} value={aux} onChange={e => { let list = [...shift.auxiliares]; list[idx] = e.target.value; setShift({...shift, auxiliares: list}); }} />
-                                {idx > 0 && <button onClick={() => { let list = [...shift.auxiliares]; list.splice(idx,1); setShift({...shift, auxiliares: list}); }} className="text-red-500 p-2"><i className="fas fa-trash"></i></button>}
-                            </div>
+                            <input key={idx} className="w-full p-4 border-2 rounded-2xl text-sm font-black mb-2" placeholder={`AUXILIAR ${idx+1}`} value={aux} onChange={e => { let list = [...shift.auxiliares]; list[idx] = e.target.value; setShift({...shift, auxiliares: list}); }} />
                         ))}
-                        <button onClick={() => setShift({...shift, auxiliares: [...shift.auxiliares, '']})} className="w-full py-2 bg-slate-100 text-slate-600 rounded-xl text-[10px] font-black uppercase">+ Adicionar Auxiliar</button>
                     </Card>
-                    <Card><Label required>DDS / Checklist</Label><PhotoUpload fullWidth label="DDS + CHECKLIST" processing={isPhotoProcessing} preview={shift.foto_unificada} onCapture={async f => setShift({...shift, foto_unificada: await processPhoto(f)})} /></Card>
-                    <button disabled={!shift.rt || !shift.operador || !shift.placa || !shift.foto_unificada || isPhotoProcessing} onClick={() => { setShift({...shift, active: true, journeyStartTime: Date.now(), journeyDate: new Date().toLocaleDateString()}); setView('dashboard'); }} className="w-full py-6 rounded-3xl bg-audit-600 text-white font-black text-xl shadow-xl disabled:bg-slate-300 uppercase">Iniciar Expediente</button>
+                    <Card><Label required>DDS / Checklist</Label><PhotoUpload fullWidth label="DDS + CHECKLIST" processing={isPhotoProcessing} preview={shift.foto_unified} onCapture={async f => setShift({...shift, foto_unified: await processPhoto(f)})} /></Card>
+                    <button disabled={!shift.operador || !shift.placa || isPhotoProcessing} onClick={() => { setShift({...shift, active: true, journeyStartTime: Date.now(), journeyDate: new Date().toLocaleDateString()}); setView('dashboard'); }} className="w-full py-6 rounded-3xl bg-audit-600 text-white font-black text-xl shadow-xl disabled:bg-slate-300">INICIAR EXPEDIENTE</button>
                 </div>
             );
 
             if (view === 'dashboard') return (
-                <div className="pb-24 no-scrollbar min-h-screen">
-                    <div className="p-4 border-b flex justify-between items-center bg-white sticky top-0 z-40 shadow-sm">
-                        <div className="flex items-center gap-3"><div className="w-10 h-10 bg-audit-600 rounded-full flex items-center justify-center text-white"><i className="fas fa-tree"></i></div><div><p className="text-[10px] font-black text-audit-600 uppercase leading-none">Gestão MCR</p><p className="font-black text-slate-800 text-sm uppercase leading-none mt-1">{shift.operador}</p></div></div>
-                        <p className="text-[9px] font-black text-slate-400 uppercase">{shift.journeyDate}</p>
+                <div className="pb-24 min-h-screen screen-fade">
+                    <div className="p-4 border-b flex justify-between items-center bg-white sticky top-0 z-40">
+                        <div className="flex items-center gap-3"><div className="w-10 h-10 bg-audit-600 rounded-full flex items-center justify-center text-white shadow-lg"><i className="fas fa-tree"></i></div><div><p className="text-[10px] font-black text-audit-600 uppercase">Gestão MCR</p><p className="font-black text-slate-800 text-sm">{shift.operador}</p></div></div>
+                        <p className="text-[9px] font-black text-slate-400">{shift.journeyDate}</p>
                     </div>
                     <div className="p-5">
                         <div className="bg-slate-900 p-5 rounded-3xl text-white shadow-2xl mb-4 text-center border-b-4 border-audit-500"><p className="text-[10px] font-black opacity-50 uppercase mb-1">Jornada Total Diária</p><p className="text-4xl font-black font-mono text-audit-500">{formatDuration(stats.journey)}</p></div>
                         <div className="grid grid-cols-2 gap-3 mb-4">
-                            <div className="bg-audit-600 p-4 rounded-3xl text-white shadow-xl"><p className="text-[9px] font-bold opacity-70 uppercase">Hm Total Efetivo</p><p className="text-2xl font-black">{formatDuration(stats.work)}</p></div>
-                            <div className="bg-slate-800 p-4 rounded-3xl text-white shadow-xl border-b-4 border-amber-500"><p className="text-[9px] font-bold opacity-70 uppercase">Total Árvores</p><p className="text-2xl font-black">{stats.totalTrees}</p></div>
+                            <div className="bg-audit-600 p-4 rounded-3xl text-white shadow-xl"><p className="text-[9px] font-bold opacity-70 uppercase">Hm Efetivo</p><p className="text-2xl font-black">{formatDuration(stats.work)}</p></div>
+                            <div className="bg-slate-800 p-4 rounded-3xl text-white shadow-xl"><p className="text-[9px] font-bold opacity-70 uppercase">Árvores</p><p className="text-2xl font-black">{stats.totalTrees}</p></div>
                         </div>
-                        <button onClick={() => { setActiveAction({ pruningTypes: [], status: 'OK', totalPausedSeconds: 0, photosBefore: [], photosAfter: [], startTime: Date.now(), copelRequired: 'NÃO' }); setView('tree_form'); }} className="w-full bg-audit-600 text-white p-9 rounded-[2rem] shadow-xl flex flex-col items-center gap-2 btn-active"><i className="fas fa-plus-circle text-3xl"></i><span className="font-black text-xl uppercase">Registrar Manejo</span></button>
-                        <button onClick={() => { setActiveAction({ type: 'pause', isPaused: false, photosBefore: [], photosAfter: [] }); setView('global_pause_form'); }} className="w-full bg-white border-2 border-slate-200 text-slate-600 p-6 rounded-3xl mt-4 flex items-center justify-center gap-4"><i className="fas fa-pause-circle text-2xl"></i><span className="font-black text-lg uppercase">Registrar Parada</span></button>
+                        <button onClick={() => { setActiveAction({ pruningTypes: [], status: 'OK', totalPausedSeconds: 0, photosBefore: [], photosAfter: [], startTime: Date.now() }); setView('tree_form'); }} className="w-full bg-audit-600 text-white p-9 rounded-[2rem] shadow-xl flex flex-col items-center gap-2 btn-active"><i className="fas fa-plus-circle text-3xl"></i><span className="font-black text-xl uppercase">Registrar Manejo</span></button>
+                        <button onClick={() => { setActiveAction({ type: 'pause', isPaused: false }); setView('global_pause_form'); }} className="w-full bg-white border-2 border-slate-200 text-slate-600 p-6 rounded-3xl mt-4 flex items-center justify-center gap-4"><i className="fas fa-pause-circle text-2xl"></i><span className="font-black text-lg uppercase">Registrar Parada</span></button>
                     </div>
                     <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/95 border-t z-40"><button onClick={() => setShowEndConfirm(true)} className="w-full bg-audit-900 text-white py-5 rounded-3xl font-black text-sm uppercase">Encerrar Turno</button></div>
                     {showEndConfirm && (
-                        <div className="fixed inset-0 z-50 modal-overlay flex items-center justify-center p-6"><Card className="text-center p-8 w-full max-w-sm"><i className="fas fa-warning text-audit-900 text-5xl mb-4"></i><h3 className="text-xl font-black uppercase">Finalizar Dia?</h3><button onClick={() => { setShift({...shift, journeyEndTime: Date.now()}); setShowEndConfirm(false); setView('end_day'); }} className="w-full bg-audit-900 text-white py-5 rounded-2xl mt-8 font-black uppercase">Sim, Encerrar</button><button onClick={() => setShowEndConfirm(false)} className="w-full mt-2 text-slate-400 font-black uppercase text-[10px]">Voltar</button></Card></div>
+                        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-6"><Card className="text-center p-8 w-full max-w-sm"><i className="fas fa-warning text-audit-900 text-5xl mb-4"></i><h3 className="text-xl font-black uppercase">Finalizar Dia?</h3><button onClick={() => setView('end_day')} className="w-full bg-audit-900 text-white py-5 rounded-2xl mt-8 font-black">SIM, ENCERRAR</button><button onClick={() => setShowEndConfirm(false)} className="w-full mt-2 text-slate-400 font-black text-[10px]">VOLTAR</button></Card></div>
                     )}
                 </div>
             );
 
             if (view === 'tree_form') return (
-                <div className="p-6 pb-20 no-scrollbar">
-                    <div className="flex items-center gap-4 mb-6"><button onClick={() => setView('dashboard')} className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center"><i className="fas fa-arrow-left"></i></button><h2 className="text-xl font-black uppercase italic">Prontuário</h2></div>
+                <div className="p-6 pb-20 screen-fade">
+                    <div className="flex items-center gap-4 mb-6"><button onClick={() => setView('dashboard')} className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center"><i className="fas fa-arrow-left"></i></button><h2 className="text-xl font-black uppercase">Prontuário</h2></div>
                     <Card>
-                        <Label required>Origem da Demanda</Label>
-                        <select className="w-full p-4 border-2 rounded-2xl mb-4 font-black text-sm" value={activeAction.demandSource} onChange={e => setActiveAction({...activeAction, demandSource: e.target.value})}><option value="">Selecione...</option>{FONTES_DEMANDA.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}</select>
-                        <Label>Protocolo OS</Label>
-                        <input className="w-full p-4 border-2 rounded-2xl mb-4 font-black text-sm" value={activeAction.osId} onChange={e => setActiveAction({...activeAction, osId: e.target.value})} />
-                        <Label required>Tipos de Poda</Label>
-                        <div className="grid grid-cols-1 gap-2 mb-4">{TIPOS_PODA_DATA.map(t => (<label key={t.id} className={`flex items-center p-4 border-2 rounded-2xl ${activeAction.pruningTypes.includes(t.id) ? 'border-audit-600 bg-emerald-50' : 'border-slate-100'}`}><input type="checkbox" className="hidden" checked={activeAction.pruningTypes.includes(t.id)} onChange={() => { const current = activeAction.pruningTypes; setActiveAction({...activeAction, pruningTypes: current.includes(t.id) ? current.filter(x => x !== t.id) : [...current, t.id]}); }} /><i className={`fas ${activeAction.pruningTypes.includes(t.id) ? 'fa-check-square text-audit-600' : 'fa-square text-slate-300'} mr-3`}></i><span className="text-[11px] font-black uppercase">{t.id}</span></label>))}</div>
-                        <Label required>Espécie</Label>
-                        <input list="especies" className="w-full p-4 border-2 rounded-2xl bg-slate-50 font-black mb-4 text-sm" value={activeAction.species} onChange={e => setActiveAction({...activeAction, species: e.target.value})} /><datalist id="especies">{LISTA_ESPECIES.map(s => <option key={s} value={s} />)}</datalist>
+                        <Label required>Demanda</Label>
+                        <select className="w-full p-4 border-2 rounded-2xl mb-4 font-black" value={activeAction.demandSource} onChange={e => setActiveAction({...activeAction, demandSource: e.target.value})}><option value="">Selecione...</option>{FONTES_DEMANDA.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}</select>
+                        <Label>Espécie</Label>
+                        <input list="especies" className="w-full p-4 border-2 rounded-2xl mb-4 font-black" value={activeAction.species} onChange={e => setActiveAction({...activeAction, species: e.target.value})} /><datalist id="especies">{LISTA_ESPECIES.map(s => <option key={s} value={s} />)}</datalist>
                         <div className="grid grid-cols-2 gap-4">
-                            <div><Label required>CAP (cm)</Label><input type="number" className="w-full p-4 border-2 rounded-2xl font-black text-sm" value={activeAction.cap} onChange={e => setActiveAction({...activeAction, cap: e.target.value})} /></div>
-                            <div><Label required>Altura (m)</Label><input type="number" className="w-full p-4 border-2 rounded-2xl font-black text-sm" value={activeAction.height} onChange={e => setActiveAction({...activeAction, height: e.target.value})} /></div>
+                            <div><Label required>CAP (cm)</Label><input type="number" className="w-full p-4 border-2 rounded-2xl font-black" value={activeAction.cap} onChange={e => setActiveAction({...activeAction, cap: e.target.value})} /></div>
+                            <div><Label required>Altura (m)</Label><input type="number" className="w-full p-4 border-2 rounded-2xl font-black" value={activeAction.height} onChange={e => setActiveAction({...activeAction, height: e.target.value})} /></div>
                         </div>
                     </Card>
                     <Card className="border-2 border-audit-600 bg-emerald-50">
                         <Label required>Fotos Antes (Mín 3)</Label>
-                        <div className="grid grid-cols-3 gap-2 mb-4">
+                        <div className="grid grid-cols-3 gap-2">
                             {[0,1,2].map(i => <PhotoUpload key={i} label={`F${i+1}`} processing={isPhotoProcessing} preview={activeAction.photosBefore[i]} onCapture={async f => { let list = [...activeAction.photosBefore]; list[i] = await processPhoto(f); setActiveAction({...activeAction, photosBefore: list}); }} />)}
                         </div>
-                        <button disabled={!activeAction.species || activeAction.photosBefore.filter(p=>p).length < 3 || isPhotoProcessing} onClick={() => { const now = Date.now(); setActiveAction({ ...activeAction, type: 'tree', executionStartTime: now, formDurationSec: Math.floor((now - activeAction.startTime) / 1000), desc: activeAction.species }); setView('active_service'); }} className="w-full py-6 rounded-3xl bg-audit-600 text-white font-black uppercase text-xl shadow-lg">Iniciar Manejo</button>
+                        <button disabled={!activeAction.species || isPhotoProcessing} onClick={() => { setActiveAction({...activeAction, type: 'tree', startTime: Date.now()}); setView('active_service'); }} className="w-full mt-4 py-6 rounded-3xl bg-audit-600 text-white font-black uppercase">Iniciar Manejo</button>
                     </Card>
                 </div>
             );
 
             if (view === 'active_service') return (
-                <div className="p-6 flex flex-col min-h-screen no-scrollbar">
-                    <div className="text-center mt-6 uppercase"><span className="bg-audit-600 text-white px-5 py-1.5 rounded-full text-[10px] font-black tracking-widest">Execução</span><h2 className="text-xl font-black mt-5 leading-tight">{activeAction.desc}</h2></div>
+                <div className="p-6 flex flex-col min-h-screen screen-fade">
+                    <div className="text-center mt-6"><span className="bg-audit-600 text-white px-5 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest leading-none">Em Execução</span><h2 className="text-xl font-black mt-4 uppercase">{activeAction.species}</h2></div>
                     <div className="flex-1 flex flex-col justify-center items-center">
-                        <div className="text-7xl font-black text-slate-900 timer-glow font-mono">{formatDuration(elapsed - (activeAction.totalPausedSeconds || 0))}</div>
-                        <p className="text-slate-400 font-black text-[11px] mt-2 uppercase tracking-widest">Tempo Efetivo</p>
+                        <div className="fit-timer font-black text-slate-900 timer-glow font-mono leading-none">{formatDuration(elapsed - (activeAction.totalPausedSeconds || 0))}</div>
+                        <p className="text-slate-400 font-black text-[11px] mt-2 uppercase">Tempo Efetivo de Trabalho</p>
                     </div>
                     <div className="mt-auto space-y-4 pb-8">
-                        <button onClick={() => setView('pause_during_tree')} className="w-full bg-amber-500 text-black py-5 rounded-3xl font-black text-lg shadow-xl flex items-center justify-center gap-3"><i className="fas fa-pause"></i> Interromper Manejo</button>
+                        <button onClick={() => { setActiveAction({...activeAction, isPaused: true, pauseStartTime: Date.now()}); setView('active_pause_screen'); }} className="w-full bg-amber-500 text-black py-5 rounded-3xl font-black text-lg shadow-xl flex items-center justify-center gap-3"><i className="fas fa-pause"></i> Interromper Manejo</button>
                         <Card className="border-2 border-audit-900 shadow-xl">
                             <Label required>Fotos Depois (Mín 3)</Label>
                             <div className="grid grid-cols-3 gap-2 mb-4">
                                 {[0,1,2].map(i => <PhotoUpload key={i} label={`F${i+1}`} processing={isPhotoProcessing} preview={activeAction.photosAfter[i]} onCapture={async f => { let list = [...activeAction.photosAfter]; list[i] = await processPhoto(f); setActiveAction({...activeAction, photosAfter: list}); }} />)}
                             </div>
-                            <button disabled={activeAction.photosAfter.filter(p=>p).length < 3 || isPhotoProcessing} onClick={() => { const now = Date.now(); const totalDur = Math.floor((now - activeAction.startTime) / 1000); setLogs([{ ...activeAction, endTime: now, durationSec: totalDur, executionDurationSec: totalDur - activeAction.formDurationSec, coords: `${gps.lat},${gps.lng}`, status: 'OK', timestamp: new Date().toISOString() }, ...logs]); setActiveAction(null); setView('dashboard'); }} className="w-full py-5 rounded-2xl bg-audit-900 text-white font-black uppercase shadow-xl">Finalizar e Salvar</button>
+                            <button disabled={activeAction.photosAfter.length < 3 || isPhotoProcessing} onClick={() => { const now = Date.now(); setLogs([{ ...activeAction, executionDurationSec: Math.floor((now - activeAction.startTime)/1000), coords: `${gps.lat},${gps.lng}`, timestamp: new Date().toISOString() }, ...logs]); setActiveAction(null); setView('dashboard'); }} className="w-full py-5 rounded-2xl bg-audit-900 text-white font-black uppercase shadow-xl">Finalizar e Salvar</button>
                         </Card>
                     </div>
                 </div>
             );
 
-            // TELA DE PAUSA
-            if (view === 'global_pause_form' || view === 'pause_during_tree') return (
-                <div className="p-6 no-scrollbar">
-                    <div className="flex items-center gap-4 mb-6"><button onClick={() => setView(view === 'pause_during_tree' ? 'active_service' : 'dashboard')} className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center"><i className="fas fa-arrow-left"></i></button><h2 className="text-xl font-black uppercase italic">Registrar Parada</h2></div>
+            // TELA DE SELEÇÃO DE PAUSA
+            if (view === 'global_pause_form') return (
+                <div className="p-6 screen-fade">
+                    <div className="flex items-center gap-4 mb-6"><button onClick={() => setView('dashboard')} className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center"><i className="fas fa-arrow-left"></i></button><h2 className="text-xl font-black uppercase italic">Registrar Parada</h2></div>
                     <Card>
-                        <Label required>Motivo</Label>
-                        <select className="w-full p-4 border-2 rounded-2xl mb-4 font-black text-sm" value={activeAction?.tempPauseReason} onChange={e => setActiveAction({...activeAction, tempPauseReason: e.target.value})}><option value="">Selecione...</option>{PAUSE_REASONS.map(r => <option key={r} value={r}>{r}</option>)}</select>
-                        <Label required>Foto Evidência</Label>
+                        <Label required>Motivo da Parada</Label>
+                        <select className="w-full p-4 border-2 rounded-2xl mb-4 font-black bg-white" value={activeAction?.tempPauseReason} onChange={e => setActiveAction({...activeAction, tempPauseReason: e.target.value})}><option value="">Selecione...</option>{PAUSE_REASONS.map(r => <option key={r} value={r}>{r}</option>)}</select>
+                        <Label required>Foto da Evidência</Label>
                         <PhotoUpload fullWidth processing={isPhotoProcessing} preview={activeAction?.tempPausePhoto} onCapture={async f => setActiveAction({...activeAction, tempPausePhoto: await processPhoto(f)})} />
                     </Card>
                     <button disabled={!activeAction?.tempPauseReason || !activeAction?.tempPausePhoto || isPhotoProcessing} onClick={() => { setActiveAction({...activeAction, isPaused: true, pauseStartTime: Date.now()}); setView('active_pause_screen'); }} className="w-full py-6 rounded-3xl bg-amber-600 text-white font-black text-xl shadow-xl uppercase">Confirmar Pausa</button>
                 </div>
             );
 
+            // TELA DO CRONÔMETRO DE PAUSA
             if (view === 'active_pause_screen') return (
-                <div className="p-6 flex flex-col min-h-screen bg-slate-900 text-white no-scrollbar">
-                    <div className="text-center mt-12 px-4"><span className="bg-amber-500 text-black px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest">Serviço Suspenso</span><h2 className="text-2xl font-black uppercase mt-6 text-amber-500">{activeAction.tempPauseReason}</h2></div>
+                <div className="p-6 flex flex-col min-h-screen bg-slate-900 text-white screen-fade">
+                    <div className="text-center mt-12 px-4"><span className="bg-amber-500 text-black px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest">Serviço Suspenso</span><h2 className="text-2xl font-black uppercase mt-6 text-amber-500">{activeAction.tempPauseReason || 'Em Manejo'}</h2></div>
                     <div className="flex-1 flex flex-col justify-center items-center px-2">
-                        <div className="fit-timer font-black text-amber-500 pause-glow font-mono">{formatDuration(pauseElapsed)}</div>
+                        <div className="fit-timer font-black text-amber-500 pause-glow font-mono leading-none">{formatDuration(pauseElapsed)}</div>
                         <p className="text-[10px] font-black text-slate-500 mt-4 uppercase">Cronômetro de Parada</p>
                     </div>
-                    <button onClick={() => { const pDur = Math.floor((Date.now() - activeAction.pauseStartTime) / 1000); 
-                        if (activeAction.type === 'pause') { setLogs([{...activeAction, endTime: Date.now(), durationSec: pDur, status: 'PAUSA', timestamp: new Date().toISOString(), coords: `${gps.lat},${gps.lng}`}, ...logs]); setActiveAction(null); setView('dashboard'); } 
-                        else { setActiveAction({...activeAction, isPaused: false, totalPausedSeconds: (activeAction.totalPausedSeconds || 0) + pDur, tempPauseReason: null, tempPausePhoto: null}); setView('active_service'); }
+                    <button onClick={() => { 
+                        const pDur = Math.floor((Date.now() - activeAction.pauseStartTime) / 1000); 
+                        if (activeAction.type === 'pause') { 
+                            setLogs([{...activeAction, status: 'PAUSA', durationSec: pDur, timestamp: new Date().toISOString()}, ...logs]); 
+                            setActiveAction(null); setView('dashboard'); 
+                        } else { 
+                            setActiveAction({...activeAction, isPaused: false, totalPausedSeconds: (activeAction.totalPausedSeconds || 0) + pDur, tempPauseReason: null, tempPausePhoto: null}); 
+                            setView('active_service'); 
+                        }
                     }} className="bg-emerald-600 text-white py-7 rounded-[2rem] font-black text-2xl mb-12 uppercase shadow-xl mx-4">Retomar Operação</button>
                 </div>
             );
 
             if (view === 'end_day') return (
-                <div className="p-6 text-center pb-12 no-scrollbar">
-                    <i className="fas fa-circle-check text-audit-600 text-5xl mb-4"></i><h2 className="text-2xl font-black uppercase">Fechamento</h2>
+                <div className="p-6 text-center pb-12 screen-fade">
+                    <i className="fas fa-circle-check text-audit-600 text-5xl mb-4"></i><h2 className="text-2xl font-black uppercase">Turno Finalizado</h2>
                     <Card className="bg-emerald-50 mt-6 text-left border-audit-200">
                         <div className="flex justify-between border-b border-emerald-100 pb-2 mb-2"><span className="text-[10px] font-black uppercase">Hm Efetivo:</span><span className="font-mono">{formatDuration(stats.work)}</span></div>
-                        <div className="flex justify-between font-black text-audit-900"><span className="text-[11px] uppercase">Jornada Total:</span><span className="text-base font-mono">{formatDuration(stats.journey)}</span></div>
+                        <div className="flex justify-between font-black text-audit-900"><span className="text-[11px] uppercase tracking-widest">Jornada Total:</span><span className="text-base font-mono">{formatDuration(stats.journey)}</span></div>
                     </Card>
-                    <button disabled={isExporting} onClick={handleFinalExport} className="w-full py-6 rounded-3xl bg-audit-600 text-white font-black text-xl shadow-xl uppercase mt-8">{isExporting ? "PROCESSANDO..." : "Gerar e Baixar Relatório"}</button>
+                    <button disabled={isExporting} onClick={handleFinalExport} className="w-full py-6 rounded-3xl bg-audit-600 text-white font-black text-xl shadow-xl uppercase mt-8">{isExporting ? "PROCESSANDO..." : "Baixar Relatório ZIP"}</button>
                 </div>
             );
 
