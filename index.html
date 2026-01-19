@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SGP AUDIT v18.21 | CLASSIC FIXED</title>
+    <title>SGP AUDIT v18.22 | STABLE START</title>
     
     <!-- Bibliotecas Core -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -37,8 +37,8 @@
     <style>
         body { background-color: #f8fafc; font-family: 'Inter', -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; overflow-x: hidden; }
         .timer-glow { text-shadow: 0 0 15px rgba(5, 150, 105, 0.3); }
-        input:focus, select:focus, textarea:focus { border-color: #059669; outline: none; ring: 2px; ring-color: rgba(5, 150, 105, 0.2); }
         .btn-active:active { transform: scale(0.97); transition: 0.1s; }
+        input:focus, select:focus, textarea:focus { border-color: #059669; outline: none; ring: 2px; ring-color: rgba(5, 150, 105, 0.2); }
         .screen-fade { animation: fadeIn 0.2s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
         .modal-overlay { background-color: rgba(0, 0, 0, 0.7); backdrop-filter: blur(4px); }
@@ -65,7 +65,7 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef } = React;
 
-        // LINK DO GOOGLE (MANTENHA O SEU)
+        // LINK GOOGLE
         const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzNNJaZy6FUnDnT8cV2T9faGKBJ2U3zIm1js10xKjPmUbix12061WsGi3kDMioMs0X8/exec";
 
         const gerarAssinaturaSeguranca = (texto) => {
@@ -125,7 +125,6 @@
             return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:${sec.toString().padStart(2,'0')}`;
         };
 
-        // COMPONENTE CARD ORIGINAL
         const Card = ({ children, className = "" }) => <div className={`bg-white rounded-2xl shadow-sm border border-slate-200 p-5 mb-4 ${className}`}>{children}</div>;
         const Label = ({ children, required }) => <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1.5 tracking-wider">{children} {required && <span className="text-red-500">*</span>}</label>;
 
@@ -185,31 +184,76 @@
                 return () => clearInterval(timer);
             }, [activeAction, shift]);
 
-            // --- SISTEMA DE ENVIO IMEDIATO (SEM TRAVAR A TELA) ---
-            const pushData = async (payload) => {
-                if (!navigator.onLine) return false;
-                setLastSyncStatus("Enviando...");
-                
-                try {
-                    // 1. SUPABASE
-                    await window.supabase.from('registros_poda').insert([payload]);
+            // --- SYNC AUTOMÁTICO DE SEGUNDO PLANO ---
+            useEffect(() => {
+                const autoSync = setInterval(async () => {
+                    if (!navigator.onLine || !shift.active || !window.supabase) return;
+                    
+                    const allLogs = await idbKeyval.get('mcr_logs_v18_final') || [];
+                    const toSync = allLogs.filter(l => !l.synced); // Pega qualquer log não sincronizado (DDS, Arvore, etc)
 
-                    // 2. GOOGLE
-                    const targetUrl = shift.googleUrl || GOOGLE_SCRIPT_URL;
-                    fetch(targetUrl, {
-                        method: 'POST',
-                        mode: 'no-cors',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    }).catch(err => console.log("G-Delay"));
+                    for (let item of toSync) {
+                        try {
+                            const hmEfetivo = item.effectiveDurationSec || 0;
+                            const assinatura = gerarAssinaturaSeguranca(`${item.species}${hmEfetivo}THYEGO`);
+                            
+                            // 1. SUPABASE
+                            await window.supabase.from('registros_poda').insert([{
+                                data_referencia: shift.journeyDate,
+                                operador_encarregado: shift.operador,
+                                rt_responsavel: shift.rt,
+                                tst_responsavel: shift.tst,
+                                placa: shift.placa,
+                                auxiliares: shift.auxiliares?.join(", "),
+                                especie: item.species,
+                                hm_manejo_seg: hmEfetivo,
+                                pausa_total_seg: item.totalPausedSeconds || 0,
+                                coordenadas: item.coords,
+                                fotos_antes: item.photosBefore,
+                                fotos_depois: item.photosAfter,
+                                foto_dds: item.species === 'DDS_INICIAL' ? item.photosBefore[0] : null,
+                                meta_seguranca: assinatura,
+                                metadados_auditoria: item.metadata_array,
+                                status_servico: item.status
+                            }]);
 
-                    setLastSyncStatus("Sincronizado");
-                    return true;
-                } catch (e) {
-                    setLastSyncStatus("Erro Envio");
-                    return false;
-                }
-            };
+                            // 2. GOOGLE
+                            const targetUrl = shift.googleUrl || GOOGLE_SCRIPT_URL;
+                            if (targetUrl) {
+                                fetch(targetUrl, {
+                                    method: 'POST',
+                                    mode: 'no-cors',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        data_referencia: shift.journeyDate,
+                                        operador_encarregado: shift.operador,
+                                        rt: shift.rt,
+                                        tst: shift.tst,
+                                        placa: shift.placa,
+                                        auxiliares: shift.auxiliares?.join(", "),
+                                        especie: item.species,
+                                        foto_dds: item.species === 'DDS_INICIAL' ? item.photosBefore[0] : null,
+                                        hm_manejo_seg: hmEfetivo,
+                                        pausa_total_seg: item.totalPausedSeconds || 0,
+                                        coordenadas: item.coords,
+                                        status_servico: item.status,
+                                        fotos_antes: item.photosBefore,
+                                        fotos_depois: item.photosAfter,
+                                        metadados_completos: item.metadata_array
+                                    })
+                                }).catch(err => console.log("Google Delay"));
+                            }
+                            
+                            item.synced = true;
+                            await idbKeyval.set('mcr_logs_v18_final', allLogs);
+                            setLogs(prev => [...prev]); // Atualiza UI
+                            setLastSyncStatus("Sincronizado");
+                            
+                        } catch (e) { console.log("Sync wait..."); setLastSyncStatus("Tentando Sync..."); }
+                    }
+                }, 10000);
+                return () => clearInterval(autoSync);
+            }, [shift, logs]);
 
             const handleCapture = async (file, type) => {
                 if (!file) return;
@@ -233,76 +277,73 @@
                 } catch (e) { alert("Memória cheia!"); } finally { setIsPhotoProcessing(false); }
             };
 
-            // --- AÇÕES COM CORREÇÃO DE CRASH ---
+            // --- AÇÕES COM TRANSIÇÃO SEGURA (SEM TELA BRANCA) ---
 
             const startShift = async () => {
                 const now = Date.now();
                 const ns = {...shift, active: true, journeyStartTime: now, journeyDate: new Date().toLocaleDateString('pt-BR')};
                 
-                // 1. SALVA LOCALMENTE PRIMEIRO (Evita tela branca)
-                await idbKeyval.set('mcr_shift_v18_final', ns);
-                setShift(ns); 
-                setView('dashboard'); // MUDA A TELA IMEDIATAMENTE
-
-                // 2. ENVIA EM SEGUNDO PLANO
-                const ddsPayload = {
+                // 1. Cria o Log de Abertura
+                const ddsLog = {
                     data_referencia: ns.journeyDate, operador_encarregado: ns.operador, rt_responsavel: ns.rt, tst_responsavel: ns.tst, placa: ns.placa, auxiliares: ns.auxiliares?.join(", "),
-                    especie: "DDS_INICIAL", status_servico: "ABERTURA_TURNO",
-                    coordenadas: `${gps.lat},${gps.lng}`,
-                    fotos_antes: [ns.foto_unificada], // Foto DDS
-                    foto_dds: ns.foto_unificada,
-                    hm_manejo_seg: 0, pausa_total_seg: 0,
-                    meta_seguranca: gerarAssinaturaSeguranca(`DDS${now}START`)
+                    species: "DDS_INICIAL", status: "ABERTURA_TURNO",
+                    coords: `${gps.lat},${gps.lng}`,
+                    photosBefore: [ns.foto_unificada], 
+                    photosAfter: [],
+                    timestamp: new Date().toISOString(),
+                    synced: false // Deixa o AutoSync enviar depois
                 };
-                
-                // Log Local de Auditoria
-                const ddsLog = { ...ddsPayload, synced: true, timestamp: new Date().toISOString() };
+
+                // 2. Salva no Disco
                 const initialLogs = [ddsLog, ...logs];
                 await idbKeyval.set('mcr_logs_v18_final', initialLogs);
-                setLogs(initialLogs);
+                await idbKeyval.set('mcr_shift_v18_final', ns);
                 
-                // Disparo de Rede
-                pushData(ddsPayload);
+                // 3. Muda a Tela (Sem fazer request de rede)
+                setLogs(initialLogs);
+                setShift(ns);
+                
+                // Pequeno delay para garantir renderização suave
+                setTimeout(() => setView('dashboard'), 50);
             };
 
             const startTreeTimer = async () => {
                 const now = Date.now();
                 const na = {...activeAction, executionStartTime: now, formDurationSec: 0, desc: `${activeAction.species}`, treeCoords: `${gps.lat},${gps.lng}`};
                 
-                // Salva e Muda Tela
-                await idbKeyval.set('mcr_active_v18_final', na);
-                setActiveAction(na);
-                setView('active_service');
-
-                // Envia Background
-                const startPayload = {
-                    data_referencia: shift.journeyDate, operador_encarregado: shift.operador,
-                    especie: activeAction.species, status_servico: "INICIO_MANEJO",
-                    coordenadas: `${gps.lat},${gps.lng}`,
-                    fotos_antes: activeAction.photosBefore,
-                    hm_manejo_seg: 0,
-                    meta_seguranca: gerarAssinaturaSeguranca(`${activeAction.species}START`)
+                // Cria log de início para rastreabilidade
+                const startLog = { 
+                    ...na, status: "INICIO_MANEJO", species: activeAction.species, 
+                    photosBefore: activeAction.photosBefore, photosAfter: [], 
+                    timestamp: new Date().toISOString(), synced: false 
                 };
-                pushData(startPayload);
+                const updatedLogs = [startLog, ...logs];
+
+                await idbKeyval.set('mcr_logs_v18_final', updatedLogs);
+                await idbKeyval.set('mcr_active_v18_final', na);
+                
+                setLogs(updatedLogs);
+                setActiveAction(na);
+                setTimeout(() => setView('active_service'), 50);
             };
 
             const triggerPause = async () => {
                 const now = Date.now();
                 const na = {...activeAction, isPaused: true, pauseStartTime: now};
                 
+                const pauseLog = {
+                    species: "PAUSA_GERAL", status: "PAUSA_REGISTRADA", 
+                    coords: `${gps.lat},${gps.lng}`, timestamp: new Date().toISOString(), synced: false 
+                };
+                const updatedLogs = [pauseLog, ...logs];
+
+                await idbKeyval.set('mcr_logs_v18_final', updatedLogs);
                 await idbKeyval.set('mcr_active_v18_final', na);
+                
+                setLogs(updatedLogs);
                 setActiveAction(na);
                 setVisualPause(0); 
                 setView('active_pause_screen');
-
-                const pausePayload = {
-                    data_referencia: shift.journeyDate, operador_encarregado: shift.operador,
-                    especie: activeAction.species || "PAUSA_GERAL",
-                    status_servico: "PAUSA_REGISTRADA",
-                    coordenadas: `${gps.lat},${gps.lng}`,
-                    hm_manejo_seg: 0
-                };
-                pushData(pausePayload);
             };
 
             const forceSaveTree = async () => {
@@ -312,71 +353,50 @@
                     const totalDur = Math.floor((now - activeAction.startTime) / 1000);
                     const effective = totalDur - (activeAction.totalPausedSeconds || 0);
                     
-                    const finalPayload = {
-                        data_referencia: shift.journeyDate, operador_encarregado: shift.operador,
-                        rt_responsavel: shift.rt, tst_responsavel: shift.tst, placa: shift.placa, auxiliares: shift.auxiliares?.join(", "),
-                        especie: activeAction.species,
-                        hm_manejo_seg: effective,
-                        pausa_total_seg: activeAction.totalPausedSeconds || 0,
-                        coordenadas: activeAction.treeCoords || `${gps.lat},${gps.lng}`,
-                        fotos_antes: activeAction.photosBefore,
-                        fotos_depois: activeAction.photosAfter,
-                        metadados_auditoria: activeAction.metadata_array,
-                        status_servico: "CONCLUIDO",
-                        meta_seguranca: gerarAssinaturaSeguranca(`${activeAction.species}${effective}END`)
+                    const newLog = { 
+                        ...activeAction, 
+                        synced: false, // Deixa o AutoSync enviar
+                        endTime: now, 
+                        durationSec: totalDur, 
+                        effectiveDurationSec: effective, 
+                        coords: activeAction.treeCoords || `${gps.lat},${gps.lng}`, 
+                        status: 'CONCLUIDO', 
+                        timestamp: new Date().toISOString() 
                     };
 
-                    // Salva Local PRIMEIRO
-                    const newLog = { ...activeAction, synced: true, endTime: now, durationSec: totalDur, effectiveDurationSec: effective, status: 'OK', timestamp: new Date().toISOString() };
                     const updatedLogs = [newLog, ...logs];
-                    await idbKeyval.set('mcr_logs_v18_final', updatedLogs); await idbKeyval.del('mcr_active_v18_final');
+                    await idbKeyval.set('mcr_logs_v18_final', updatedLogs);
+                    await idbKeyval.del('mcr_active_v18_final');
                     
-                    setLogs(updatedLogs); setActiveAction(null);
-                    alert("ÁRVORE FINALIZADA E GRAVADA!");
+                    setLogs(updatedLogs);
+                    setActiveAction(null);
+                    
+                    alert("REGISTRO SALVO! O envio ocorrerá automaticamente.");
                     setView('dashboard');
-
-                    // Envia DEPOIS (Sem travar)
-                    pushData(finalPayload);
-
-                } catch (e) { alert("Erro ao salvar: " + e.message); } 
+                } catch (e) { alert("Erro ao salvar local: " + e.message); } 
                 finally { setIsSaving(false); }
             };
-
-            const stats = useMemo(() => {
-                const treeLogs = logs.filter(l => (l.status === 'OK' || l.status === 'IMPEDIDO') && l.species !== 'DDS_INICIAL');
-                const totalFormSec = treeLogs.reduce((acc, log) => acc + (log.formDurationSec || 0), 0);
-                const totalManejoPuroSec = treeLogs.reduce((acc, log) => acc + (log.effectiveDurationSec || 0), 0);
-                const hmTotalEfetivo = totalFormSec + totalManejoPuroSec;
-                return { 
-                    work: hmTotalEfetivo, 
-                    preparo: totalFormSec,
-                    manejo: totalManejoPuroSec,
-                    logistics: Math.max(0, visualJourney - hmTotalEfetivo), 
-                    journey: visualJourney, 
-                    totalTrees: treeLogs.length,
-                    treesPruned: treeLogs.filter(t => t.pruningTypes?.some(p => !p.includes('CORTE'))).length,
-                    treesSuppressed: treeLogs.filter(t => t.pruningTypes?.some(p => p.includes('CORTE'))).length
-                };
-            }, [logs, visualJourney]);
 
             const handleFinalExport = async () => {
                 const zip = new JSZip();
                 let csv = "DATA;ESPECIE;HM;OPERADOR;STATUS\n";
                 logs.forEach(l => csv += `${shift.journeyDate};${l.species};${l.effectiveDurationSec};${shift.operador};${l.synced ? 'ENVIADO' : 'PENDENTE'}\n`);
                 zip.file("RELATORIO.csv", csv);
-                const folder = zip.folder("EVIDENCIAS_FOTOGRAFICAS");
-                if(shift.foto_unificada) folder.file("00_DDS_ABERTURA.jpg", shift.foto_unificada.split(',')[1], {base64: true});
+                const folder = zip.folder("EVIDENCIAS");
                 logs.forEach((l, i) => {
                     l.photosBefore?.forEach((p, j) => folder.file(`ARV_${i+1}_ANTES_${j+1}.jpg`, p.split(',')[1], {base64:true}));
                     l.photosAfter?.forEach((p, j) => folder.file(`ARV_${i+1}_DEPOIS_${j+1}.jpg`, p.split(',')[1], {base64:true}));
                 });
+                const jsonFolder = zip.folder("DADOS_TECNICOS");
+                logs.forEach((l, i) => jsonFolder.file(`REG_${i+1}.json`, JSON.stringify(l)));
+
                 const blob = await zip.generateAsync({type:"blob"});
                 const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `MCR_${shift.operador}.zip`; a.click();
                 if(confirm("Confirma limpeza?")) { await idbKeyval.clear(); window.location.reload(); }
             };
 
-            // VIEWS ORIGINAIS (Layout Clássico)
-            if (view === 'loading') return <div className="h-screen bg-audit-900 flex items-center justify-center text-white font-black italic tracking-widest animate-pulse">SGP AUDIT v18.21...</div>;
+            // VIEWS (Layout Clássico)
+            if (view === 'loading') return <div className="h-screen bg-audit-900 flex items-center justify-center text-white font-black italic tracking-widest animate-pulse">SGP AUDIT v18.22...</div>;
 
             if (view === 'setup') return (
                 <div className="p-6 screen-fade pb-20 no-scrollbar">
@@ -580,9 +600,10 @@
                             setActiveAction(na); await idbKeyval.set('mcr_active_v18_final', na);
                             setVisualPause(0); setView('active_pause_screen'); 
                             
-                            // Envia Rastreabilidade
+                            // Envia Rastreabilidade em Background
                             const pausePayload = { data_referencia: shift.journeyDate, operador_encarregado: shift.operador, especie: "PAUSA_GERAL", status_servico: "PAUSA_REGISTRADA", coordenadas: `${gps.lat},${gps.lng}`, hm_manejo_seg: 0 };
-                            pushData(pausePayload);
+                            // Sem await para não travar
+                            const p = window.supabase.from('registros_poda').insert([pausePayload]);
                         }} className="w-full py-6 rounded-3xl bg-amber-600 text-white font-black text-xl shadow-xl disabled:bg-slate-300 uppercase italic">Confirmar Pausa</button>
                         <button onClick={()=>setView(activeAction.type==='tree' ? 'active_service' : 'dashboard')} className="w-full p-5 text-slate-400 font-black uppercase text-[10px] tracking-widest underline decoration-dotted">Voltar</button>
                     </div>
