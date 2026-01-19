@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SGP AUDIT v18.6 | MCR Controle Crítico</title>
+    <title>SGP AUDIT v18.8 | MCR MObile</title>
     
     <!-- Bibliotecas Core -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -11,14 +11,14 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- Motores de Resiliência, Auditoria e Processamento -->
+    <!-- Motores de Processamento -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/idb-keyval@6/dist/umd.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/browser-image-compression@2.0.2/dist/browser-image-compression.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/exif-js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
-    <!-- Conexão Oficial Supabase - Projeto Thyêgo MCR -->
+    <!-- Conexão Supabase -->
     <script type="module">
         import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm'
         window.supabase = createClient(
@@ -47,17 +47,38 @@
         input::placeholder, textarea::placeholder { text-transform: none; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .fit-timer { font-size: clamp(3rem, 15vw, 6rem); }
+        
+        /* Alerta Offline */
+        .offline-badge { 
+            display: none; 
+            background: #ef4444; color: white; 
+            position: fixed; top: 0; left: 0; right: 0; z-index: 100; 
+            text-align: center; font-size: 10px; font-weight: 900; 
+            padding: 4px; letter-spacing: 1px; text-transform: uppercase;
+        }
+        body.offline .offline-badge { display: block; }
     </style>
 </head>
-<body>
+<body ononline="document.body.classList.remove('offline')" onoffline="document.body.classList.add('offline')">
+    
+    <div class="offline-badge"><i class="fas fa-wifi-slash mr-2"></i>Sem Internet - Modo Local Ativo</div>
     <div id="root"></div>
 
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef } = React;
 
-        const TARGET_EMAIL = "thyego.engflorestalmcr@gmail.com";
+        // --- SEGURANÇA SILENCIOSA (Backend Logic) ---
+        const gerarAssinaturaSeguranca = (texto) => {
+            let hash = 0;
+            if (texto.length === 0) return hash;
+            for (let i = 0; i < texto.length; i++) {
+                const char = texto.charCodeAt(i);
+                hash = ((hash << 5) - hash) + char;
+                hash = hash & hash;
+            }
+            return Math.abs(hash).toString(16).toUpperCase();
+        };
 
-        // Dados originais v18.6 mantidos integralmente
         const TIPOS_PODA_DATA = [
             { id: "Poda de Levantamento" }, { id: "Poda de Limpeza" }, { id: "Poda de Adequação" }, 
             { id: "Poda Estrutural" }, { id: "Poda de Segurança" }, { id: "Poda Emergencial" }, { id: "CORTE TOTAL (SUPRESSÃO)" }
@@ -70,14 +91,30 @@
             { id: "corte_protocolo", label: "Corte com Protocolo/Laudo" }
         ];
 
+        // NOVA LISTA COMPLETA FORNECIDA
         const LISTA_ESPECIES = [
             "Araucária (Pinheiro-do-paraná) [AMEAÇADA / IMUNE]", "Cedro [AMEAÇADA]", "Imbuia [AMEAÇADA / IMUNE]", 
             "Peroba-rosa [AMEAÇADA]", "Canela-preta [AMEAÇADA]", "Jacarandá-da-bahia [AMEAÇADA]", "Pau-brasil [AMEAÇADA]",
             "Xaxim [AMEAÇADA / IMUNE]", "Figueira-branca [IMUNE]", "NÃO IDENTIFICADA", "DESCONHECIDA", "Abacateiro", 
-            "Abacaxi-de-anta", "Acacia", "Alfeneiro", "Angico", "Aroeira", "Canafístula", "Canela", "Cerejeira", "Cinamomo", "Eucalipto", 
-            "Ficus", "Figueira", "Flamboyant", "Ipê-amarelo", "Ipê-rosa", "Ipê-roxo", "Jabuticabeira", "Jerivá", 
-            "Ligustro", "Mangueira", "Oiti", "Paineira", "Pata-de-vaca", "Pau-ferro", "Pitanga", "Quaresmeira", 
-            "Sibipiruna", "Tipuana"
+            "Abacaxi-de-anta", "Acacia", "Acacia-negra", "Açaí", "Açoita-cavalo", "Alecrim", "Alecrim-de-campinas", 
+            "Alfeneiro", "Algodoeiro", "Amapá", "Amendoim-bravo", "Angico", "Angico-branco", "Angico-vermelho", 
+            "Araticum", "Aroeira", "Aroeira-mansa", "Aroeira-pimenteira", "Aroeira-preta", "Aroeira-salsa", 
+            "Aroeira-vermelha", "Arvore-de-espeto", "Baguaçu", "Bambu", "Bauhinia", "Bicuíba", "Boleira", 
+            "Bracatinga", "Braúna", "Buriti", "Cabreúva", "Cafezeiro", "Caixeta", "Cajueiro", "Cambará", "Camboatá", 
+            "Canafístula", "Canela", "Canela-amarela", "Canela-batalha", "Canela-fogo", "Canela-guaicá", 
+            "Canela-lageana", "Canjerana", "Capororoca", "Caroba", "Carvalho", "Casca-d'anta", "Castanha-do-maranhão", 
+            "Casuarina", "Cedrinho", "Cerejeira", "Chapéu-de-napoleão", "Cinamomo", "Cipó-mil-homens", "Coqueiro", 
+            "Corticeira", "Cumaru", "Cuveiro", "Embaúba", "Erva-mate", "Eucalipto", "Extremosa", "Ficus", 
+            "Ficus-benjamina", "Figueira", "Flamboyant", "Gameleira", "Goiabeira", "Grápia", "Grevillea", 
+            "Guabiroba", "Guaçatonga", "Guajuvira", "Guatambu", "Guatambu-branco", "Hovenia", "Ingá", "Ipê-amarelo", 
+            "Ipê-branco", "Ipê-rosa", "Ipê-roxo", "Ipê-tabaco", "Jabuticabeira", "Jabuticaba", "Jacarandá", "Jacarandá-mimoso", 
+            "Jacarandá-paulista", "Jaca", "Jamelão", "Jatobá", "Jequitibá", "Jerivá", "Leiteiro", "Ligustro", 
+            "Louro", "Louro-pardo", "Magnólia", "Mamica-de-cadela", "Mandioqueira", "Mangueira", "Marinheiro", 
+            "Mogno", "Monjoleiro", "Mulungu", "Murta", "Noz-pecã", "Oiti", "Oleo-balsamo", "Paineira", 
+            "Palmeira-imperial", "Palmeira-real", "Pata-de-vaca", "Pau-ferro", "Pau-marfim", "Pau-mulato", 
+            "Peroba", "Pinus", "Pitanga", "Platano", "Quaresmeira", "Resedá", "Sabiá", "Sagüeiro", "Sangra-d'água", 
+            "Sapucaia", "Sete-copas", "Sibipiruna", "Sucupira", "Tamarineiro", "Tarumã", "Tipuana", "Tucaneira", 
+            "Uvaia", "Uva-do-japão", "Vassourão-branco"
         ].sort();
 
         const PAUSE_REASONS = ["Almoço / Refeição", "Chuva / Tempo Ruim", "Quebra de Equipamento", "Logística / Deslocamento", "Interferência de Munícipe", "Abastecimento", "Suspensão Rede (COPEL)", "Outros"];
@@ -85,7 +122,7 @@
         const formatDuration = (s) => {
             const h = Math.floor(s / 3600);
             const m = Math.floor((s % 3600) / 60);
-            const sec = s % 60;
+            const sec = Math.floor(s % 60);
             return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:${sec.toString().padStart(2,'0')}`;
         };
 
@@ -94,7 +131,7 @@
 
         const PhotoUpload = ({ label, help, preview, onCapture, icon="fa-camera", fullWidth = false, processing = false }) => (
             <label className={`relative ${fullWidth ? 'h-40' : 'h-28'} border-2 border-dashed rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer ${preview ? 'border-audit-500 bg-emerald-50' : 'border-slate-300 bg-slate-50'}`}>
-                {processing ? <div className="text-center"><i className="fas fa-spinner fa-spin text-audit-600 text-xl"></i><div className="text-[8px] mt-1 font-black uppercase tracking-widest">Auditoria...</div></div> : 
+                {processing ? <div className="text-center"><i className="fas fa-spinner fa-spin text-audit-600 text-xl"></i><div className="text-[8px] mt-1 font-black uppercase tracking-widest">Processando...</div></div> : 
                  preview ? <img src={preview} className="absolute inset-0 w-full h-full object-cover rounded-xl" /> : (
                     <div className="text-center p-2">
                         <i className={`fas ${icon} text-2xl text-slate-300 mb-1`}></i>
@@ -112,35 +149,44 @@
             const [logs, setLogs] = useState([]);
             const [activeAction, setActiveAction] = useState(null);
             const [gps, setGps] = useState({ lat: null, lng: null });
-            const [elapsed, setElapsed] = useState(0); 
-            const [pauseElapsed, setPauseElapsed] = useState(0);
-            const [journeyElapsed, setJourneyElapsed] = useState(0); 
+            
+            // Variáveis visuais (apenas para exibição)
+            const [visualElapsed, setVisualElapsed] = useState(0); 
+            const [visualPause, setVisualPause] = useState(0);
+            const [visualJourney, setVisualJourney] = useState(0);
+            
             const [showEndConfirm, setShowEndConfirm] = useState(false);
             const [isExporting, setIsExporting] = useState(false);
             const [isPhotoProcessing, setIsPhotoProcessing] = useState(false);
 
-            // Recuperação Integral de Estado
+            // --- PROTEÇÃO DE DADOS (Salvar ao sair) ---
+            const saveData = async () => {
+                if (shift?.active) await idbKeyval.set('mcr_shift_v18_final', shift);
+                if (activeAction) await idbKeyval.set('mcr_active_v18_final', activeAction); else await idbKeyval.del('mcr_active_v18_final');
+                await idbKeyval.set('mcr_logs_v18_final', logs);
+            };
+
             useEffect(() => {
                 const load = async () => {
                     const s = await idbKeyval.get('mcr_shift_v18_final');
                     const a = await idbKeyval.get('mcr_active_v18_final');
                     const l = await idbKeyval.get('mcr_logs_v18_final') || [];
                     if (s) setShift(s);
-                    if (a) { setActiveAction(a); if (a.startTime) setElapsed(Math.floor((Date.now() - a.startTime) / 1000)); }
+                    if (a) setActiveAction(a);
                     setLogs(l);
                     setView(s?.active ? 'dashboard' : 'setup');
                 };
                 load();
+
+                // Listener para salvar quando minimizar
+                document.addEventListener("visibilitychange", () => {
+                    if (document.hidden) saveData();
+                });
             }, []);
 
-            // Persistência Integral
-            useEffect(() => {
-                if (shift?.active) idbKeyval.set('mcr_shift_v18_final', shift);
-                if (activeAction) idbKeyval.set('mcr_active_v18_final', activeAction); else idbKeyval.del('mcr_active_v18_final');
-                idbKeyval.set('mcr_logs_v18_final', logs);
-            }, [shift, activeAction, logs]);
+            useEffect(() => { saveData(); }, [shift, activeAction, logs]);
 
-            // GPS Integral
+            // GPS
             useEffect(() => {
                 const watchId = navigator.geolocation.watchPosition(
                     (pos) => setGps({ lat: pos.coords.latitude.toFixed(6), lng: pos.coords.longitude.toFixed(6) }),
@@ -149,34 +195,38 @@
                 return () => navigator.geolocation.clearWatch(watchId);
             }, []);
 
-            // Lógica do Cronômetro Exata da v18.6
+            // --- CRONÔMETRO ---
             useEffect(() => {
                 const timer = setInterval(() => {
+                    const now = Date.now();
                     if (shift?.active && shift?.journeyStartTime) {
-                        const now = shift.journeyEndTime || Date.now();
-                        setJourneyElapsed(Math.floor((now - shift.journeyStartTime) / 1000));
+                        const endTime = shift.journeyEndTime || now;
+                        setVisualJourney(Math.floor((endTime - shift.journeyStartTime) / 1000));
                     }
                     if (activeAction?.startTime) {
-                        setElapsed(Math.floor((Date.now() - activeAction.startTime) / 1000));
+                        setVisualElapsed(Math.floor((now - activeAction.startTime) / 1000));
                         if (activeAction.isPaused && activeAction.pauseStartTime) {
-                            setPauseElapsed(Math.floor((Date.now() - activeAction.pauseStartTime) / 1000));
+                            setVisualPause(Math.floor((now - activeAction.pauseStartTime) / 1000));
                         }
                     }
-                }, 1000);
+                }, 500);
                 return () => clearInterval(timer);
-            }, [activeAction, shift.active, shift.journeyStartTime, shift.journeyEndTime]);
+            }, [activeAction, shift]);
 
-            // --- ADAPTAÇÃO: SINCRONISMO SUPABASE (SILENCIOSO) ---
+            // --- SYNC SILENCIOSO ---
             useEffect(() => {
                 const autoSync = setInterval(async () => {
                     if (!navigator.onLine || !shift?.active || !window.supabase) return;
                     
                     const allLogs = await idbKeyval.get('mcr_logs_v18_final') || [];
-                    const toSync = allLogs.filter(l => !l.synced && l.status === 'OK');
+                    const toSync = allLogs.filter(l => !l.synced && l.status !== 'EM_ANDAMENTO');
 
                     for (let item of toSync) {
                         try {
-                            const hmEfetivo = item.executionDurationSec - (item.totalPausedSeconds || 0);
+                            const hmEfetivo = item.executionDurationSec ? (item.executionDurationSec - (item.totalPausedSeconds || 0)) : 0;
+                            // Hash de segurança para a nuvem
+                            const assinatura = gerarAssinaturaSeguranca(`${item.species}${hmEfetivo}THYEGO_CLOUD`);
+
                             const { error } = await window.supabase.from('registros_poda').insert([{
                                 data_referencia: shift.journeyDate,
                                 operador_encarregado: shift.operador,
@@ -189,11 +239,12 @@
                                 altura: item.height,
                                 hm_manejo_seg: hmEfetivo,
                                 pausa_total_seg: item.totalPausedSeconds,
-                                coordenadas: `POINT(${gps.lng} ${gps.lat})`,
+                                coordenadas: item.coords || `POINT(${gps.lng} ${gps.lat})`,
                                 fotos_antes: item.photosBefore,
                                 fotos_depois: item.photosAfter,
-                                metadados_auditoria: item.metadata_array, // Prova de localização
-                                status_servico: item.status
+                                metadados_auditoria: item.metadata_array, 
+                                status_servico: item.status,
+                                meta_seguranca: assinatura
                             }]);
                             
                             if (!error) {
@@ -201,18 +252,17 @@
                                 setLogs([...allLogs]);
                                 await idbKeyval.set('mcr_logs_v18_final', allLogs);
                             }
-                        } catch (e) { console.error("Falha de Sync Silencioso:", e); }
+                        } catch (e) { console.log("Sync wait..."); }
                     }
-                }, 30000);
+                }, 20000);
                 return () => clearInterval(autoSync);
             }, [shift, logs, gps]);
 
-            // --- ADAPTAÇÃO: PROCESSAMENTO COM METADADOS EXIF ---
+            // Captura de Foto
             const handleCapture = async (file, type) => {
                 if (!file) return;
                 setIsPhotoProcessing(true);
                 
-                // Extração EXIF + Fallback carimbo digital imediato
                 const metadata = await new Promise(resolve => {
                     EXIF.getData(file, function() {
                         const tags = EXIF.getAllTags(this);
@@ -226,8 +276,7 @@
                     });
                 });
 
-                // Compressão agressiva para estabilidade mobile
-                const options = { maxSizeMB: 0.1, maxWidthOrHeight: 1024, useWebWorker: true, initialQuality: 0.6 };
+                const options = { maxSizeMB: 0.15, maxWidthOrHeight: 1024, useWebWorker: true, initialQuality: 0.7 };
                 try {
                     const compressed = await imageCompression(file, options);
                     const base64 = await new Promise(r => {
@@ -241,7 +290,7 @@
                     if (type === 'shift') setShift(s => ({...s, foto_unificada: base64}));
                     if (type === 'pause') setActiveAction(a => ({...a, tempPausePhoto: base64}));
                     if (type === 'problem') setActiveAction(a => ({...a, photoProblem: base64}));
-                } catch (e) { console.error(e); }
+                } catch (e) { alert("Erro ao processar imagem."); }
                 finally { setIsPhotoProcessing(false); }
             };
 
@@ -255,7 +304,7 @@
                 }, 0);
 
                 const hmTotalEfetivo = totalFormSec + totalManejoPuroSec;
-                const journeySec = journeyElapsed;
+                const journeySec = visualJourney;
                 const logisticSec = Math.max(0, journeySec - hmTotalEfetivo);
                 
                 return { 
@@ -268,35 +317,30 @@
                     treesPruned: treeLogs.filter(t => t.pruningTypes?.some(p => !p.includes('CORTE'))).length,
                     treesSuppressed: treeLogs.filter(t => t.pruningTypes?.some(p => p.includes('CORTE'))).length
                 };
-            }, [logs, journeyElapsed]);
+            }, [logs, visualJourney]);
 
-            const finalizeAndClearAll = async () => {
-                await idbKeyval.clear();
-                localStorage.clear();
-                window.location.reload();
-            };
-
-            // --- ADAPTAÇÃO: EXPORTAÇÃO DESCRIPTOGRAFADA E CSV ---
+            // --- EXPORTAÇÃO FINAL ---
             const handleFinalExport = async () => {
                 setIsExporting(true);
                 try {
                     const zip = new JSZip();
                     
-                    // 1. PLANILHA CSV DESBLOQUEADA
-                    let csv = "DATA;STATUS;ESPECIE;CAP;ALTURA;OS;HM_EFETIVO;PAUSA_SEG;GPS;OPERADOR\n";
+                    let csv = "DATA;STATUS;ESPECIE;CAP;ALTURA;OS;HM_EFETIVO;PAUSA_SEG;GPS;OPERADOR;CODIGO_VERIFICACAO\n";
                     logs.forEach(l => {
                         const hm = (l.executionDurationSec || 0) - (l.totalPausedSeconds || 0);
-                        csv += `${shift.journeyDate};${l.status};${l.species || 'PARADA'};${l.cap || ''};${l.height || ''};${l.osId || 'ROTINA'};${hm};${l.totalPausedSeconds || 0};${l.coords || ''};${shift.operador}\n`;
+                        const dadosLinha = `${shift.journeyDate}${l.species}${hm}${shift.operador}THYEGO_SEC`;
+                        const assinatura = gerarAssinaturaSeguranca(dadosLinha);
+                        csv += `${shift.journeyDate};${l.status};${l.species || 'PARADA'};${l.cap || ''};${l.height || ''};${l.osId || 'ROTINA'};${hm};${l.totalPausedSeconds || 0};${l.coords || ''};${shift.operador};${assinatura}\n`;
                     });
                     zip.file("RELATORIO_DIARIO_MCR.csv", csv);
 
-                    // 2. FOTOS COM NOMES AMIGÁVEIS
                     const folder = zip.folder("EVIDENCIAS_FOTOGRAFICAS");
                     if(shift.foto_unificada) folder.file("00_DDS_ABERTURA.jpg", shift.foto_unificada.split(',')[1], {base64: true});
                     logs.forEach((l, idx) => {
                         l.photosBefore?.forEach((p, i) => folder.file(`ARV_${idx+1}_ANTES_${i+1}.jpg`, p.split(',')[1], {base64: true}));
                         l.photosAfter?.forEach((p, i) => folder.file(`ARV_${idx+1}_DEPOIS_${i+1}.jpg`, p.split(',')[1], {base64: true}));
                         if(l.photoProblem) folder.file(`ARV_${idx+1}_IMPEDIMENTO.jpg`, l.photoProblem.split(',')[1], {base64: true});
+                        if(l.tempPausePhoto) folder.file(`PAUSA_${idx+1}.jpg`, l.tempPausePhoto.split(',')[1], {base64: true});
                     });
 
                     const blob = await zip.generateAsync({type:"blob"});
@@ -305,18 +349,24 @@
                     a.download = `RAD_PODA_MCR_${shift.operador}_${shift.journeyDate.replace(/\//g,'-')}.zip`;
                     a.click();
                     
-                    await finalizeAndClearAll();
+                    if(confirm("Download Concluído. Confirmar limpeza dos dados para o próximo turno?")) {
+                        await idbKeyval.clear();
+                        window.location.reload();
+                    }
                 } catch (e) { alert("Erro Export: " + e.message); }
                 finally { setIsExporting(false); }
             };
 
-            // VIEWS ORIGINAIS v18.6 PRESERVADAS
+            // VIEWS
+            if (view === 'loading') return <div className="h-screen bg-audit-900 flex items-center justify-center text-white font-black italic tracking-widest animate-pulse">SGP AUDIT v18.8...</div>;
 
-            if (view === 'loading') return <div className="h-screen bg-audit-900 flex items-center justify-center text-white font-black italic tracking-widest animate-pulse">SGP AUDIT...</div>;
-
-            if (view === 'setup' || view === 'edit_team') return (
+            if (view === 'setup') return (
                 <div className="p-6 screen-fade pb-20 no-scrollbar">
-                    <div className="text-center mb-8"><i className="fas fa-helmet-safety text-audit-600 text-5xl mb-4"></i><h1 className="text-2xl font-black text-slate-800 uppercase leading-none">Abertura de Turno</h1></div>
+                    <div className="text-center mb-8">
+                        <i className="fas fa-shield-alt text-audit-600 text-5xl mb-4"></i>
+                        <h1 className="text-2xl font-black text-slate-800 uppercase leading-none">Abertura de Turno</h1>
+                        <p className="text-[10px] text-red-600 font-bold mt-2 uppercase tracking-widest">Não Limpar Dados do Navegador</p>
+                    </div>
                     <Card>
                         <Label required>Equipe Técnica</Label>
                         <div className="space-y-3">
@@ -350,7 +400,10 @@
                 <div className="screen-fade pb-24 no-scrollbar min-h-screen">
                     <div className="p-4 border-b flex justify-between items-center bg-white sticky top-0 z-40 shadow-sm">
                         <div className="flex items-center gap-3"><div className="w-10 h-10 bg-audit-600 rounded-full flex items-center justify-center text-white shadow-lg"><i className="fas fa-tree"></i></div><div><p className="text-[10px] font-black text-audit-600 uppercase leading-none">Gestão MCR</p><p className="font-black text-slate-800 text-sm uppercase mt-1">{shift.operador}</p></div></div>
-                        <p className="text-[9px] font-black text-slate-400 uppercase">{shift.journeyDate}</p>
+                        <div className="text-right">
+                            <p className="text-[9px] font-black text-slate-400 uppercase">{shift.journeyDate}</p>
+                            <p className="text-[8px] font-bold text-audit-600 uppercase">{gps.lat ? 'GPS ATIVO' : 'Buscando GPS...'}</p>
+                        </div>
                     </div>
                     <div className="p-5">
                         <div className="bg-slate-900 p-5 rounded-3xl text-white shadow-2xl mb-4 text-center border-b-4 border-audit-500"><p className="text-[10px] font-black opacity-50 uppercase mb-1 tracking-widest leading-none">Jornada Total Diária</p><p className="text-4xl font-black font-mono text-audit-500 tracking-tighter leading-none">{formatDuration(stats.journey)}</p></div>
@@ -414,7 +467,7 @@
                             <Label required>Tipos de Poda</Label>
                             <div className="grid grid-cols-1 gap-2 mb-4">{TIPOS_PODA_DATA.map(t => (<label key={t.id} className={`flex items-center p-4 border-2 rounded-2xl transition-all ${activeAction?.pruningTypes?.includes(t.id) ? 'border-audit-600 bg-emerald-50' : 'border-slate-100'}`}><input type="checkbox" className="hidden" checked={activeAction?.pruningTypes?.includes(t.id)} onChange={() => { const current = activeAction.pruningTypes || []; setActiveAction({...activeAction, pruningTypes: current.includes(t.id) ? current.filter(x => x !== t.id) : [...current, t.id]}); }} /><i className={`fas ${activeAction?.pruningTypes?.includes(t.id) ? 'fa-check-square text-audit-600' : 'fa-square text-slate-300'} mr-3`}></i><span className="text-[11px] font-black uppercase">{t.id}</span></label>))}</div>
                             <Label required>Espécie</Label>
-                            <input list="especies" className="w-full p-4 border-2 rounded-2xl bg-slate-50 font-black mb-4 uppercase text-sm" placeholder="Pesquisar espécie..." value={activeAction.species || ''} onChange={e => setActiveAction({...activeAction, species: e.target.value.toUpperCase()})} /><datalist id="especies">{LISTA_ESPECIES.map(s => <option key={s} value={s} />)}</datalist>
+                            <input list="especies" className="w-full p-4 border-2 rounded-2xl bg-slate-50 font-black mb-4 uppercase text-sm" placeholder="Pesquisar ou Digitar nova..." value={activeAction.species || ''} onChange={e => setActiveAction({...activeAction, species: e.target.value.toUpperCase()})} /><datalist id="especies">{LISTA_ESPECIES.map(s => <option key={s} value={s} />)}</datalist>
                             <div className="grid grid-cols-2 gap-4">
                                 <div><Label required>CAP (cm)</Label><input type="number" className="w-full p-4 border-2 rounded-2xl font-black text-sm" placeholder="CAP" value={activeAction.cap || ''} onChange={e => setActiveAction({...activeAction, cap: e.target.value})} /></div>
                                 <div><Label required>Altura (m)</Label><input type="number" className="w-full p-4 border-2 rounded-2xl font-black text-sm" placeholder="Altura" value={activeAction.height || ''} onChange={e => setActiveAction({...activeAction, height: e.target.value})} /></div>
@@ -463,22 +516,28 @@
             }
 
             if (view === 'active_service') {
-                const totalElapsed = elapsed - (activeAction.totalPausedSeconds || 0);
-                const execElapsed = Math.floor((Date.now() - (activeAction.executionStartTime || activeAction.startTime)) / 1000);
+                const totalElapsed = visualElapsed - (activeAction.totalPausedSeconds || 0);
+                const execElapsed = Math.floor((Date.now() - (activeAction.executionStartTime || activeAction.startTime)) / 1000) - (activeAction.totalPausedSeconds || 0);
                 const formElapsed = activeAction.formDurationSec || 0;
+                
                 return (
                     <div className="p-6 screen-fade flex flex-col min-h-screen no-scrollbar">
                         <div className="text-center mt-6 uppercase"><span className="bg-audit-600 text-white px-5 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest leading-none">Execução em Curso</span><h2 className="text-xl font-black text-slate-800 uppercase mt-5 leading-tight">{activeAction.desc}</h2></div>
                         <div className="flex-1 flex flex-col justify-center items-center">
-                            <div className="text-7xl font-black text-slate-900 timer-glow leading-none font-mono tracking-tighter">{formatDuration(totalElapsed)}</div>
+                            <div className="text-7xl font-black text-slate-900 timer-glow leading-none font-mono tracking-tighter">
+                                {activeAction.isPaused ? "PAUSA" : formatDuration(totalElapsed)}
+                            </div>
                             <p className="text-slate-400 font-black text-[11px] mt-2 uppercase tracking-widest leading-none">Hm Efetivo Total</p>
+                            
+                            {activeAction.isPaused && <div className="mt-4 text-amber-500 font-bold uppercase animate-pulse">Serviço Interrompido</div>}
+
                             <div className="mt-12 grid grid-cols-2 gap-4 w-full max-w-sm">
                                 <div className="bg-slate-50 p-5 rounded-[2rem] border border-slate-200 text-center"><p className="text-[7px] font-black text-slate-400 uppercase mb-1">Preparo</p><p className="text-lg font-black text-slate-600 font-mono leading-none">{formatDuration(formElapsed)}</p></div>
-                                <div className="bg-emerald-50 p-5 rounded-[2rem] border border-emerald-200 text-center"><p className="text-[7px] font-black text-emerald-500 uppercase mb-1">Poda</p><p className="text-lg font-black text-emerald-700 font-mono leading-none">{formatDuration(execElapsed)}</p></div>
+                                <div className="bg-emerald-50 p-5 rounded-[2rem] border border-emerald-200 text-center"><p className="text-[7px] font-black text-emerald-500 uppercase mb-1">Poda</p><p className="text-lg font-black text-emerald-700 font-mono leading-none">{formatDuration(Math.max(0, execElapsed))}</p></div>
                             </div>
                         </div>
                         <div className="mt-auto space-y-4 pb-8">
-                            <button onClick={() => { setActiveAction({...activeAction, isPaused: true, pauseStartTime: Date.now()}); setPauseElapsed(0); setView('pause_during_tree'); }} className="w-full bg-amber-500 text-black py-5 rounded-3xl font-black text-lg shadow-xl flex items-center justify-center gap-3 active:scale-95 transition-transform"><i className="fas fa-pause"></i> Interromper Manejo</button>
+                            <button onClick={() => { setActiveAction({...activeAction, isPaused: true, pauseStartTime: Date.now()}); setVisualPause(0); setView('pause_during_tree'); }} className="w-full bg-amber-500 text-black py-5 rounded-3xl font-black text-lg shadow-xl flex items-center justify-center gap-3 active:scale-95 transition-transform"><i className="fas fa-pause"></i> Interromper Manejo</button>
                             <Card className="border-2 border-audit-900 shadow-xl">
                                 <Label required>3 Fotos de Depois</Label>
                                 <div className="grid grid-cols-3 gap-2 mb-2">
@@ -515,7 +574,7 @@
                             const now = Date.now();
                             const isNewPause = !activeAction?.startTime;
                             setActiveAction({ ...activeAction, type: activeAction?.type || 'pause', isPaused: true, pauseStartTime: now, startTime: isNewPause ? now : activeAction.startTime, pauseCoords: `${gps.lat},${gps.lng}` }); 
-                            setPauseElapsed(0); setView('active_pause_screen'); 
+                            setVisualPause(0); setView('active_pause_screen'); 
                         }} className="w-full py-6 rounded-3xl bg-amber-600 text-white font-black text-xl shadow-xl disabled:bg-slate-300 uppercase italic">Confirmar Pausa</button>
                         <button onClick={()=>setView(activeAction.type==='tree' ? 'active_service' : 'dashboard')} className="w-full p-5 text-slate-400 font-black uppercase text-[10px] tracking-widest underline decoration-dotted">Voltar</button>
                     </div>
@@ -526,7 +585,7 @@
                 <div className="p-6 screen-fade flex flex-col min-h-screen bg-slate-900 text-white no-scrollbar">
                     <div className="text-center mt-12 px-4"><span className="bg-amber-500 text-black px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest shadow-md">Serviço Suspenso</span><h2 className="text-2xl font-black uppercase mt-6 text-amber-500 leading-tight">{activeAction.tempPauseReason === 'Outros' ? activeAction.customPauseReason : activeAction.tempPauseReason}</h2></div>
                     <div className="flex-1 flex flex-col justify-center items-center px-2">
-                        <div className="fit-timer font-black text-amber-500 pause-glow font-mono leading-none tracking-tighter">{formatDuration(pauseElapsed)}</div>
+                        <div className="fit-timer font-black text-amber-500 pause-glow font-mono leading-none tracking-tighter">{formatDuration(visualPause)}</div>
                         <p className="text-[10px] font-black text-slate-500 mt-4 uppercase tracking-widest tracking-[0.2em]">Cronômetro de Parada</p>
                     </div>
                     <button onClick={() => { const pDur = Math.floor((Date.now() - activeAction.pauseStartTime) / 1000); 
@@ -543,9 +602,9 @@
                         <div className="flex justify-between border-b border-emerald-100 pb-2 mb-2 font-black"><span className="text-[10px] text-emerald-600 uppercase tracking-widest">Hm Efetivo:</span><span className="text-base font-mono">{formatDuration(stats.work)}</span></div>
                         <div className="flex justify-between font-black text-audit-900"><span className="text-[11px] uppercase tracking-widest">Jornada Total:</span><span className="text-lg font-mono">{formatDuration(stats.journey)}</span></div>
                     </Card>
-                    <div className="p-5 bg-amber-50 rounded-3xl border-2 border-amber-200 mt-8 text-left">
-                        <p className="text-[11px] font-black text-amber-700 uppercase mb-2 leading-tight tracking-wider"><i className="fas fa-file-csv mr-2"></i>Relatório Diário:</p>
-                        <p className="text-[11px] text-amber-900 font-medium leading-relaxed leading-tight">O botão abaixo gera a planilha <b>CSV (Excel)</b> e organiza suas fotos. <b>O sistema removeu as senhas para facilitar o seu trabalho mensal.</b> Os dados georreferenciados já foram salvos administrativamente.</p>
+                    <div className="p-5 bg-emerald-50 rounded-3xl border-2 border-emerald-200 mt-8 text-left">
+                        <p className="text-[11px] font-black text-emerald-700 uppercase mb-2 leading-tight tracking-wider"><i className="fas fa-file-csv mr-2"></i>Relatório Final:</p>
+                        <p className="text-[11px] text-emerald-900 font-medium leading-relaxed leading-tight">O botão abaixo gera a planilha de produção e organiza as evidências fotográficas. Após o download, o sistema limpará a memória para o próximo dia.</p>
                     </div>
                     <button disabled={isExporting} onClick={handleFinalExport} className="w-full py-8 mt-10 rounded-[2.5rem] bg-audit-600 text-white font-black text-2xl shadow-xl uppercase tracking-tighter flex items-center justify-center gap-4 btn-active italic tracking-widest shadow-emerald-100">
                         {isExporting ? <><i className="fas fa-spinner fa-spin"></i>Gerando...</> : <><i className="fas fa-file-download"></i>Baixar Relatório</>}
@@ -554,7 +613,6 @@
                 </div>
             );
 
-            if (view === 'loading') return <div className="h-screen bg-audit-900 flex items-center justify-center text-white font-black italic tracking-widest animate-pulse tracking-widest">SGP AUDIT...</div>;
             return null;
         };
 
