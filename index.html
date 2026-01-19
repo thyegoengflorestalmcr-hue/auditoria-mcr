@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SGP AUDIT v18.22 | STABLE START</title>
+    <title>SGP AUDIT v18.24 | CLASSIC STABLE</title>
     
     <!-- Bibliotecas Core -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -37,8 +37,9 @@
     <style>
         body { background-color: #f8fafc; font-family: 'Inter', -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; overflow-x: hidden; }
         .timer-glow { text-shadow: 0 0 15px rgba(5, 150, 105, 0.3); }
-        .btn-active:active { transform: scale(0.97); transition: 0.1s; }
+        .pause-glow { text-shadow: 0 0 20px rgba(245, 158, 11, 0.4); }
         input:focus, select:focus, textarea:focus { border-color: #059669; outline: none; ring: 2px; ring-color: rgba(5, 150, 105, 0.2); }
+        .btn-active:active { transform: scale(0.97); transition: 0.1s; }
         .screen-fade { animation: fadeIn 0.2s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
         .modal-overlay { background-color: rgba(0, 0, 0, 0.7); backdrop-filter: blur(4px); }
@@ -65,7 +66,7 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef } = React;
 
-        // LINK GOOGLE
+        // LINK DO GOOGLE FIXO
         const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzNNJaZy6FUnDnT8cV2T9faGKBJ2U3zIm1js10xKjPmUbix12061WsGi3kDMioMs0X8/exec";
 
         const gerarAssinaturaSeguranca = (texto) => {
@@ -184,76 +185,23 @@
                 return () => clearInterval(timer);
             }, [activeAction, shift]);
 
-            // --- SYNC AUTOMÁTICO DE SEGUNDO PLANO ---
-            useEffect(() => {
-                const autoSync = setInterval(async () => {
-                    if (!navigator.onLine || !shift.active || !window.supabase) return;
+            const pushData = async (payload) => {
+                if (!navigator.onLine) return;
+                setLastSyncStatus("Enviando...");
+                try {
+                    // Supabase
+                    window.supabase.from('registros_poda').insert([payload]).then(() => {});
                     
-                    const allLogs = await idbKeyval.get('mcr_logs_v18_final') || [];
-                    const toSync = allLogs.filter(l => !l.synced); // Pega qualquer log não sincronizado (DDS, Arvore, etc)
+                    // Google
+                    const targetUrl = shift.googleUrl || GOOGLE_SCRIPT_URL;
+                    fetch(targetUrl, {
+                        method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    }).catch(e => {});
 
-                    for (let item of toSync) {
-                        try {
-                            const hmEfetivo = item.effectiveDurationSec || 0;
-                            const assinatura = gerarAssinaturaSeguranca(`${item.species}${hmEfetivo}THYEGO`);
-                            
-                            // 1. SUPABASE
-                            await window.supabase.from('registros_poda').insert([{
-                                data_referencia: shift.journeyDate,
-                                operador_encarregado: shift.operador,
-                                rt_responsavel: shift.rt,
-                                tst_responsavel: shift.tst,
-                                placa: shift.placa,
-                                auxiliares: shift.auxiliares?.join(", "),
-                                especie: item.species,
-                                hm_manejo_seg: hmEfetivo,
-                                pausa_total_seg: item.totalPausedSeconds || 0,
-                                coordenadas: item.coords,
-                                fotos_antes: item.photosBefore,
-                                fotos_depois: item.photosAfter,
-                                foto_dds: item.species === 'DDS_INICIAL' ? item.photosBefore[0] : null,
-                                meta_seguranca: assinatura,
-                                metadados_auditoria: item.metadata_array,
-                                status_servico: item.status
-                            }]);
-
-                            // 2. GOOGLE
-                            const targetUrl = shift.googleUrl || GOOGLE_SCRIPT_URL;
-                            if (targetUrl) {
-                                fetch(targetUrl, {
-                                    method: 'POST',
-                                    mode: 'no-cors',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({
-                                        data_referencia: shift.journeyDate,
-                                        operador_encarregado: shift.operador,
-                                        rt: shift.rt,
-                                        tst: shift.tst,
-                                        placa: shift.placa,
-                                        auxiliares: shift.auxiliares?.join(", "),
-                                        especie: item.species,
-                                        foto_dds: item.species === 'DDS_INICIAL' ? item.photosBefore[0] : null,
-                                        hm_manejo_seg: hmEfetivo,
-                                        pausa_total_seg: item.totalPausedSeconds || 0,
-                                        coordenadas: item.coords,
-                                        status_servico: item.status,
-                                        fotos_antes: item.photosBefore,
-                                        fotos_depois: item.photosAfter,
-                                        metadados_completos: item.metadata_array
-                                    })
-                                }).catch(err => console.log("Google Delay"));
-                            }
-                            
-                            item.synced = true;
-                            await idbKeyval.set('mcr_logs_v18_final', allLogs);
-                            setLogs(prev => [...prev]); // Atualiza UI
-                            setLastSyncStatus("Sincronizado");
-                            
-                        } catch (e) { console.log("Sync wait..."); setLastSyncStatus("Tentando Sync..."); }
-                    }
-                }, 10000);
-                return () => clearInterval(autoSync);
-            }, [shift, logs]);
+                    setLastSyncStatus("Sincronizado");
+                } catch (e) { setLastSyncStatus("Erro Envio"); }
+            };
 
             const handleCapture = async (file, type) => {
                 if (!file) return;
@@ -264,7 +212,10 @@
                         resolve({ data: new Date().toISOString(), gps: tags.GPSLatitude ? { lat: tags.GPSLatitude, lng: tags.GPSLongitude } : null });
                     });
                 });
-                const options = { maxSizeMB: 0.08, maxWidthOrHeight: 800, useWebWorker: true, initialQuality: 0.6 };
+                
+                // COMPRESSÃO AGRESSIVA PARA EVITAR CRASH
+                const options = { maxSizeMB: 0.05, maxWidthOrHeight: 720, useWebWorker: true, initialQuality: 0.5 };
+                
                 try {
                     const compressed = await imageCompression(file, options);
                     const base64 = await new Promise(r => { const reader = new FileReader(); reader.readAsDataURL(compressed); reader.onloadend = () => r(reader.result); });
@@ -274,76 +225,76 @@
                     else if (type === 'after') { const na = {...activeAction, photosAfter: [...(activeAction.photosAfter||[]), base64]}; setActiveAction(na); await idbKeyval.set('mcr_active_v18_final', na); }
                     else if (type === 'pause') { const na = {...activeAction, tempPausePhoto: base64}; setActiveAction(na); await idbKeyval.set('mcr_active_v18_final', na); }
                     else if (type === 'problem') { const na = {...activeAction, photoProblem: base64}; setActiveAction(na); await idbKeyval.set('mcr_active_v18_final', na); }
-                } catch (e) { alert("Memória cheia!"); } finally { setIsPhotoProcessing(false); }
+                } catch (e) { alert("Memória cheia! Tente fechar outros apps."); } 
+                finally { setIsPhotoProcessing(false); }
             };
 
-            // --- AÇÕES COM TRANSIÇÃO SEGURA (SEM TELA BRANCA) ---
+            // --- AÇÕES CRÍTICAS (CORREÇÃO TELA BRANCA) ---
 
             const startShift = async () => {
-                const now = Date.now();
-                const ns = {...shift, active: true, journeyStartTime: now, journeyDate: new Date().toLocaleDateString('pt-BR')};
-                
-                // 1. Cria o Log de Abertura
-                const ddsLog = {
-                    data_referencia: ns.journeyDate, operador_encarregado: ns.operador, rt_responsavel: ns.rt, tst_responsavel: ns.tst, placa: ns.placa, auxiliares: ns.auxiliares?.join(", "),
-                    species: "DDS_INICIAL", status: "ABERTURA_TURNO",
-                    coords: `${gps.lat},${gps.lng}`,
-                    photosBefore: [ns.foto_unificada], 
-                    photosAfter: [],
-                    timestamp: new Date().toISOString(),
-                    synced: false // Deixa o AutoSync enviar depois
-                };
+                setIsSaving(true);
+                try {
+                    const now = Date.now();
+                    const ns = {...shift, active: true, journeyStartTime: now, journeyDate: new Date().toLocaleDateString('pt-BR')};
+                    
+                    // 1. SALVA LOCALMENTE
+                    await idbKeyval.set('mcr_shift_v18_final', ns);
+                    setShift(ns);
 
-                // 2. Salva no Disco
-                const initialLogs = [ddsLog, ...logs];
-                await idbKeyval.set('mcr_logs_v18_final', initialLogs);
-                await idbKeyval.set('mcr_shift_v18_final', ns);
-                
-                // 3. Muda a Tela (Sem fazer request de rede)
-                setLogs(initialLogs);
-                setShift(ns);
-                
-                // Pequeno delay para garantir renderização suave
-                setTimeout(() => setView('dashboard'), 50);
+                    // 2. PREPARA DADOS
+                    const ddsLog = {
+                        data_referencia: ns.journeyDate, operador_encarregado: ns.operador, rt_responsavel: ns.rt, tst_responsavel: ns.tst, placa: ns.placa, auxiliares: ns.auxiliares?.join(", "),
+                        species: "DDS_INICIAL", status: "ABERTURA_TURNO",
+                        coords: `${gps.lat},${gps.lng}`,
+                        photosBefore: [ns.foto_unificada], foto_dds: ns.foto_unificada,
+                        hm_manejo_seg: 0, pausa_total_seg: 0,
+                        meta_seguranca: gerarAssinaturaSeguranca(`DDS${now}START`),
+                        synced: false, timestamp: new Date().toISOString()
+                    };
+
+                    const initialLogs = [ddsLog, ...logs];
+                    await idbKeyval.set('mcr_logs_v18_final', initialLogs);
+                    setLogs(initialLogs);
+
+                    // 3. MUDA A TELA (DELAY PARA PROCESSADOR RESPIRAR)
+                    setTimeout(() => {
+                        setView('dashboard');
+                        setIsSaving(false);
+                        // 4. ENVIA EM BACKGROUND DEPOIS
+                        setTimeout(() => pushData(ddsLog), 1000);
+                    }, 500);
+
+                } catch (e) { alert("Erro: " + e.message); setIsSaving(false); }
             };
 
             const startTreeTimer = async () => {
                 const now = Date.now();
                 const na = {...activeAction, executionStartTime: now, formDurationSec: 0, desc: `${activeAction.species}`, treeCoords: `${gps.lat},${gps.lng}`};
                 
-                // Cria log de início para rastreabilidade
-                const startLog = { 
-                    ...na, status: "INICIO_MANEJO", species: activeAction.species, 
-                    photosBefore: activeAction.photosBefore, photosAfter: [], 
-                    timestamp: new Date().toISOString(), synced: false 
-                };
-                const updatedLogs = [startLog, ...logs];
-
-                await idbKeyval.set('mcr_logs_v18_final', updatedLogs);
                 await idbKeyval.set('mcr_active_v18_final', na);
-                
-                setLogs(updatedLogs);
                 setActiveAction(na);
-                setTimeout(() => setView('active_service'), 50);
+                
+                setTimeout(() => {
+                    setView('active_service');
+                    pushData({
+                        data_referencia: shift.journeyDate, operador_encarregado: shift.operador,
+                        especie: activeAction.species, status_servico: "INICIO_MANEJO",
+                        coordenadas: `${gps.lat},${gps.lng}`,
+                        fotos_antes: activeAction.photosBefore,
+                        hm_manejo_seg: 0,
+                        meta_seguranca: gerarAssinaturaSeguranca(`${activeAction.species}START`)
+                    });
+                }, 500);
             };
 
             const triggerPause = async () => {
                 const now = Date.now();
                 const na = {...activeAction, isPaused: true, pauseStartTime: now};
-                
-                const pauseLog = {
-                    species: "PAUSA_GERAL", status: "PAUSA_REGISTRADA", 
-                    coords: `${gps.lat},${gps.lng}`, timestamp: new Date().toISOString(), synced: false 
-                };
-                const updatedLogs = [pauseLog, ...logs];
-
-                await idbKeyval.set('mcr_logs_v18_final', updatedLogs);
                 await idbKeyval.set('mcr_active_v18_final', na);
-                
-                setLogs(updatedLogs);
                 setActiveAction(na);
                 setVisualPause(0); 
                 setView('active_pause_screen');
+                pushData({ data_referencia: shift.journeyDate, operador_encarregado: shift.operador, especie: "PAUSA_GERAL", status_servico: "PAUSA_REGISTRADA", coordenadas: `${gps.lat},${gps.lng}`, hm_manejo_seg: 0 });
             };
 
             const forceSaveTree = async () => {
@@ -355,7 +306,7 @@
                     
                     const newLog = { 
                         ...activeAction, 
-                        synced: false, // Deixa o AutoSync enviar
+                        synced: false,
                         endTime: now, 
                         durationSec: totalDur, 
                         effectiveDurationSec: effective, 
@@ -367,14 +318,27 @@
                     const updatedLogs = [newLog, ...logs];
                     await idbKeyval.set('mcr_logs_v18_final', updatedLogs);
                     await idbKeyval.del('mcr_active_v18_final');
+                    setLogs(updatedLogs); setActiveAction(null);
                     
-                    setLogs(updatedLogs);
-                    setActiveAction(null);
-                    
-                    alert("REGISTRO SALVO! O envio ocorrerá automaticamente.");
-                    setView('dashboard');
-                } catch (e) { alert("Erro ao salvar local: " + e.message); } 
-                finally { setIsSaving(false); }
+                    setTimeout(() => {
+                        setView('dashboard');
+                        setIsSaving(false);
+                        pushData({
+                            data_referencia: shift.journeyDate, operador_encarregado: shift.operador,
+                            rt_responsavel: shift.rt, tst_responsavel: shift.tst, placa: shift.placa, auxiliares: shift.auxiliares?.join(", "),
+                            especie: activeAction.species,
+                            hm_manejo_seg: effective,
+                            pausa_total_seg: activeAction.totalPausedSeconds || 0,
+                            coordenadas: activeAction.treeCoords || `${gps.lat},${gps.lng}`,
+                            fotos_antes: activeAction.photosBefore,
+                            fotos_depois: activeAction.photosAfter,
+                            metadados_auditoria: activeAction.metadata_array,
+                            status_servico: "CONCLUIDO",
+                            meta_seguranca: gerarAssinaturaSeguranca(`${activeAction.species}${effective}END`)
+                        });
+                    }, 500);
+
+                } catch (e) { alert("Erro: " + e.message); setIsSaving(false); } 
             };
 
             const handleFinalExport = async () => {
@@ -382,24 +346,24 @@
                 let csv = "DATA;ESPECIE;HM;OPERADOR;STATUS\n";
                 logs.forEach(l => csv += `${shift.journeyDate};${l.species};${l.effectiveDurationSec};${shift.operador};${l.synced ? 'ENVIADO' : 'PENDENTE'}\n`);
                 zip.file("RELATORIO.csv", csv);
-                const folder = zip.folder("EVIDENCIAS");
+                const folder = zip.folder("EVIDENCIAS_FOTOGRAFICAS");
+                if(shift.foto_unificada) folder.file("00_DDS_ABERTURA.jpg", shift.foto_unificada.split(',')[1], {base64: true});
                 logs.forEach((l, i) => {
                     l.photosBefore?.forEach((p, j) => folder.file(`ARV_${i+1}_ANTES_${j+1}.jpg`, p.split(',')[1], {base64:true}));
                     l.photosAfter?.forEach((p, j) => folder.file(`ARV_${i+1}_DEPOIS_${j+1}.jpg`, p.split(',')[1], {base64:true}));
                 });
-                const jsonFolder = zip.folder("DADOS_TECNICOS");
+                const jsonFolder = zip.folder("DADOS_DETALHADOS_JSON");
                 logs.forEach((l, i) => jsonFolder.file(`REG_${i+1}.json`, JSON.stringify(l)));
-
                 const blob = await zip.generateAsync({type:"blob"});
                 const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `MCR_${shift.operador}.zip`; a.click();
                 if(confirm("Confirma limpeza?")) { await idbKeyval.clear(); window.location.reload(); }
             };
 
-            // VIEWS (Layout Clássico)
-            if (view === 'loading') return <div className="h-screen bg-audit-900 flex items-center justify-center text-white font-black italic tracking-widest animate-pulse">SGP AUDIT v18.22...</div>;
+            if (view === 'loading') return <div className="h-screen bg-audit-900 flex items-center justify-center text-white font-black italic tracking-widest animate-pulse">SGP AUDIT v18.24...</div>;
 
             if (view === 'setup') return (
                 <div className="p-6 screen-fade pb-20 no-scrollbar">
+                    {isSaving && <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center text-white flex-col"><i className="fas fa-spinner fa-spin text-4xl mb-4"></i><p>SALVANDO DADOS...</p></div>}
                     <div className="text-center mb-8">
                         <i className="fas fa-shield-alt text-audit-600 text-5xl mb-4"></i>
                         <h1 className="text-2xl font-black text-slate-800 uppercase leading-none">Abertura de Turno</h1>
@@ -426,10 +390,7 @@
                                 </div>
                             ))}
                         </div>
-                        <div>
-                            <label className="text-xs font-bold text-emerald-600"><i className="fas fa-check-circle mr-1"></i>CONEXÃO GOOGLE ATIVA</label>
-                            <input className="w-full p-3 border-2 border-emerald-100 bg-emerald-50 rounded-lg text-[10px] text-slate-400 mb-4" value={shift.googleUrl} readOnly />
-                        </div>
+                        <div><label className="text-xs font-bold text-emerald-600"><i className="fas fa-check-circle mr-1"></i>CONEXÃO GOOGLE ATIVA</label><input className="w-full p-3 border-2 border-emerald-100 bg-emerald-50 rounded-lg text-[10px] text-slate-400 mb-4" value={shift.googleUrl} readOnly /></div>
                         <Label>Logística de Apoio</Label>
                         <input className="w-full p-4 border-2 rounded-2xl font-black uppercase text-sm" placeholder="Placa Apoio" value={shift.placaAux} onChange={e => setShift({...shift, placaAux: e.target.value.toUpperCase()})} />
                     </Card>
@@ -442,27 +403,13 @@
                 <div className="screen-fade pb-24 no-scrollbar min-h-screen">
                     <div className="p-4 border-b flex justify-between items-center bg-white sticky top-0 z-40 shadow-sm">
                         <div className="flex items-center gap-3"><div className="w-10 h-10 bg-audit-600 rounded-full flex items-center justify-center text-white shadow-lg"><i className="fas fa-tree"></i></div><div><p className="text-[10px] font-black text-audit-600 uppercase leading-none">Gestão MCR</p><p className="font-black text-slate-800 text-sm uppercase mt-1">{shift.operador}</p></div></div>
-                        <div className="text-right">
-                            <p className="text-[9px] font-black text-slate-400 uppercase">{shift.journeyDate}</p>
-                            <p className="text-[8px] font-bold text-audit-600 uppercase">{gps.lat ? 'GPS ATIVO' : 'Buscando GPS...'}</p>
-                            <p className="text-[7px] font-bold text-emerald-600 uppercase animate-pulse">{lastSyncStatus}</p>
-                        </div>
+                        <div className="text-right"><p className="text-[9px] font-black text-slate-400 uppercase">{shift.journeyDate}</p><p className="text-[8px] font-bold text-audit-600 uppercase">{gps.lat ? 'GPS ATIVO' : 'Buscando GPS...'}</p><p className="text-[7px] font-bold text-emerald-600 uppercase animate-pulse">{lastSyncStatus}</p></div>
                     </div>
                     <div className="p-5">
                         <div className="bg-slate-900 p-5 rounded-3xl text-white shadow-2xl mb-4 text-center border-b-4 border-audit-500"><p className="text-[10px] font-black opacity-50 uppercase mb-1 tracking-widest leading-none">Jornada Total Diária</p><p className="text-4xl font-black font-mono text-audit-500 tracking-tighter leading-none">{formatDuration(stats.journey)}</p></div>
                         <div className="grid grid-cols-2 gap-3 mb-4">
-                            <div className="bg-audit-600 p-4 rounded-3xl text-white shadow-xl">
-                                <p className="text-[9px] font-bold opacity-70 uppercase mb-1">Hm Total Efetivo</p>
-                                <p className="text-2xl font-black leading-none">{formatDuration(stats.work)}</p>
-                                <div className="mt-4 pt-3 border-t border-white/20 grid grid-cols-2 gap-2">
-                                    <div><p className="text-[6px] font-black uppercase opacity-60 leading-none">Preparo</p><p className="text-[11px] font-black font-mono mt-0.5">{formatDuration(stats.preparo)}</p></div>
-                                    <div><p className="text-[6px] font-black uppercase opacity-60 leading-none">Manejo</p><p className="text-[11px] font-black font-mono mt-0.5">{formatDuration(stats.manejo)}</p></div>
-                                </div>
-                            </div>
-                            <div className="bg-slate-800 p-4 rounded-3xl text-white shadow-xl border-b-4 border-amber-500">
-                                <p className="text-[9px] font-bold opacity-70 uppercase mb-1">Logística / Pausas</p>
-                                <p className="text-2xl font-black leading-none">{formatDuration(stats.logistics)}</p>
-                            </div>
+                            <div className="bg-audit-600 p-4 rounded-3xl text-white shadow-xl"><p className="text-[9px] font-bold opacity-70 uppercase mb-1">Hm Total Efetivo</p><p className="text-2xl font-black leading-none">{formatDuration(stats.work)}</p><div className="mt-4 pt-3 border-t border-white/20 grid grid-cols-2 gap-2"><div><p className="text-[6px] font-black uppercase opacity-60 leading-none">Preparo</p><p className="text-[11px] font-black font-mono mt-0.5">{formatDuration(stats.preparo)}</p></div><div><p className="text-[6px] font-black uppercase opacity-60 leading-none">Manejo</p><p className="text-[11px] font-black font-mono mt-0.5">{formatDuration(stats.manejo)}</p></div></div></div>
+                            <div className="bg-slate-800 p-4 rounded-3xl text-white shadow-xl border-b-4 border-amber-500"><p className="text-[9px] font-bold opacity-70 uppercase mb-1">Logística / Pausas</p><p className="text-2xl font-black leading-none">{formatDuration(stats.logistics)}</p></div>
                         </div>
                         <div className="grid grid-cols-3 gap-2 mb-6 bg-white p-4 rounded-3xl border border-slate-100 shadow-sm text-center">
                             <div className="border-r border-slate-100"><p className="text-[8px] font-black text-slate-400 uppercase mb-1">Total</p><p className="text-xl font-black text-slate-800">{stats.totalTrees}</p></div>
@@ -470,12 +417,8 @@
                             <div><p className="text-[8px] font-black text-slate-400 uppercase mb-1">Cortes</p><p className="text-xl font-black text-red-600">{stats.treesSuppressed}</p></div>
                         </div>
                         <div className="space-y-4">
-                            <button onClick={async () => { const na = { pruningTypes: [], status: 'OK', totalPausedSeconds: 0, photosBefore: [], photosAfter: [], startTime: Date.now(), copelRequired: 'NÃO' }; setActiveAction(na); await idbKeyval.set('mcr_active_v18_final', na); setView('tree_form'); }} className="w-full bg-audit-600 text-white p-9 rounded-[2rem] shadow-xl flex flex-col items-center gap-2 btn-active">
-                                <i className="fas fa-plus-circle text-3xl"></i><span className="font-black text-xl uppercase tracking-tighter">Registrar Manejo</span>
-                            </button>
-                            <button onClick={() => { setActiveAction({ type: 'pause', isPaused: false, photosBefore: [], photosAfter: [] }); setView('global_pause_form'); }} className="w-full bg-white border-2 border-slate-200 text-slate-600 p-6 rounded-3xl shadow-sm flex items-center justify-center gap-4 btn-active">
-                                <i className="fas fa-pause-circle text-2xl"></i><span className="font-black text-lg uppercase tracking-tighter">Registrar Parada</span>
-                            </button>
+                            <button onClick={async () => { const na = { pruningTypes: [], status: 'OK', totalPausedSeconds: 0, photosBefore: [], photosAfter: [], startTime: Date.now(), copelRequired: 'NÃO' }; setActiveAction(na); await idbKeyval.set('mcr_active_v18_final', na); setView('tree_form'); }} className="w-full bg-audit-600 text-white p-9 rounded-[2rem] shadow-xl flex flex-col items-center gap-2 btn-active"><i className="fas fa-plus-circle text-3xl"></i><span className="font-black text-xl uppercase tracking-tighter">Registrar Manejo</span></button>
+                            <button onClick={() => { setActiveAction({ type: 'pause', isPaused: false, photosBefore: [], photosAfter: [] }); setView('global_pause_form'); }} className="w-full bg-white border-2 border-slate-200 text-slate-600 p-6 rounded-3xl shadow-sm flex items-center justify-center gap-4 btn-active"><i className="fas fa-pause-circle text-2xl"></i><span className="font-black text-lg uppercase tracking-tighter">Registrar Parada</span></button>
                         </div>
                     </div>
                     <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/95 border-t z-40"><button onClick={() => setShowEndConfirm(true)} className="w-full bg-audit-900 text-white py-5 rounded-3xl font-black text-sm uppercase">Encerrar Turno</button></div>
@@ -483,10 +426,7 @@
                         <div className="fixed inset-0 z-50 modal-overlay flex items-center justify-center p-6 screen-fade">
                             <div className="bg-white w-full max-w-sm rounded-[2rem] p-8 shadow-2xl text-center border-t-4 border-audit-900">
                                 <i className="fas fa-warning text-audit-900 text-5xl mb-4"></i><h3 className="text-xl font-black text-slate-800 uppercase leading-none">Confirmar Fechamento?</h3>
-                                <div className="mt-8 space-y-3">
-                                    <button onClick={() => { setShift({...shift, journeyEndTime: Date.now()}); setShowEndConfirm(false); setView('end_day'); }} className="w-full bg-audit-900 text-white py-5 rounded-2xl font-black uppercase shadow-lg">Sim, Encerrar</button>
-                                    <button onClick={() => setShowEndConfirm(false)} className="w-full bg-slate-100 text-slate-400 py-4 rounded-2xl font-black uppercase text-[10px]">Voltar</button>
-                                </div>
+                                <div className="mt-8 space-y-3"><button onClick={() => { setShift({...shift, journeyEndTime: Date.now()}); setShowEndConfirm(false); setView('end_day'); }} className="w-full bg-audit-900 text-white py-5 rounded-2xl font-black uppercase shadow-lg">Sim, Encerrar</button><button onClick={() => setShowEndConfirm(false)} className="w-full bg-slate-100 text-slate-400 py-4 rounded-2xl font-black uppercase text-[10px]">Voltar</button></div>
                             </div>
                         </div>
                     )}
@@ -497,7 +437,7 @@
                 const isOsRequired = activeAction.demandSource && activeAction.demandSource !== 'manutencao';
                 return (
                     <div className="p-6 screen-fade pb-20 no-scrollbar">
-                        <div className="flex items-center gap-4 mb-6"><button onClick={() => { setActiveAction(null); setView('dashboard'); }} className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center"><i className="fas fa-arrow-left"></i></button><h2 className="text-xl font-black text-slate-800 uppercase italic leading-none">Prontuário</h2></div>
+                        <div className="flex items-center gap-4 mb-6"><button onClick={()=>{setActiveAction(null);setView('dashboard')}} className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center"><i className="fas fa-arrow-left"></i></button><h2 className="text-xl font-black text-slate-800 uppercase italic">Prontuário</h2></div>
                         <Card>
                             <Label required>Origem da Demanda</Label>
                             <select className="w-full p-4 border-2 rounded-2xl mb-4 font-black text-sm bg-white" value={activeAction.demandSource || ''} onChange={e => setActiveAction({...activeAction, demandSource: e.target.value})}><option value="">Selecione...</option>{FONTES_DEMANDA.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}</select>
@@ -548,109 +488,11 @@
                 );
             }
 
-            if (view === 'active_service') {
-                const totalElapsed = visualElapsed - (activeAction.totalPausedSeconds || 0);
-                const execElapsed = Math.floor((Date.now() - (activeAction.executionStartTime || activeAction.startTime)) / 1000) - (activeAction.totalPausedSeconds || 0);
-                const formElapsed = activeAction.formDurationSec || 0;
-                return (
-                    <div className="p-6 screen-fade flex flex-col min-h-screen no-scrollbar">
-                        <div className="text-center mt-6 uppercase"><span className="bg-audit-600 text-white px-5 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest leading-none">Execução em Curso</span><h2 className="text-xl font-black text-slate-800 uppercase mt-5 leading-tight">{activeAction.desc}</h2></div>
-                        <div className="flex-1 flex flex-col justify-center items-center">
-                            <div className="text-7xl font-black text-slate-900 timer-glow leading-none font-mono tracking-tighter">{formatDuration(totalElapsed)}</div>
-                            <p className="text-slate-400 font-black text-[11px] mt-2 uppercase tracking-widest leading-none">Hm Efetivo Total</p>
-                            <div className="mt-12 grid grid-cols-2 gap-4 w-full max-w-sm">
-                                <div className="bg-slate-50 p-5 rounded-[2rem] border border-slate-200 text-center"><p className="text-[7px] font-black text-slate-400 uppercase mb-1">Preparo</p><p className="text-lg font-black text-slate-600 font-mono leading-none">{formatDuration(formElapsed)}</p></div>
-                                <div className="bg-emerald-50 p-5 rounded-[2rem] border border-emerald-200 text-center"><p className="text-[7px] font-black text-emerald-500 uppercase mb-1">Poda</p><p className="text-lg font-black text-emerald-700 font-mono leading-none">{formatDuration(Math.max(0, execElapsed))}</p></div>
-                            </div>
-                        </div>
-                        <div className="mt-auto space-y-4 pb-8">
-                            <button onClick={triggerPause} className="w-full bg-amber-500 text-black py-5 rounded-3xl font-black text-lg shadow-xl flex items-center justify-center gap-3 active:scale-95 transition-transform"><i className="fas fa-pause"></i> Interromper Manejo</button>
-                            <Card className="border-2 border-audit-900 shadow-xl">
-                                <Label required>3 Fotos de Depois</Label>
-                                <div className="grid grid-cols-3 gap-2 mb-2">
-                                    <PhotoUpload label="F1" help="COPA" processing={isPhotoProcessing} preview={activeAction.photosAfter?.[0]} onCapture={f => handleCapture(f, 'after')} />
-                                    <PhotoUpload label="F2" help="CORTE" processing={isPhotoProcessing} preview={activeAction.photosAfter?.[1]} onCapture={f => handleCapture(f, 'after')} />
-                                    <PhotoUpload label="F3" help="LIMPO" processing={isPhotoProcessing} preview={activeAction.photosAfter?.[2]} onCapture={f => handleCapture(f, 'after')} />
-                                </div>
-                                <button disabled={activeAction.photosAfter?.filter(p=>p).length < 3 || isPhotoProcessing || isSaving} onClick={forceSaveTree} className="w-full mt-4 py-5 rounded-2xl bg-audit-900 text-white font-black uppercase shadow-xl disabled:bg-slate-300">
-                                    {isSaving ? "GRAVANDO..." : "FINALIZAR E SALVAR"}
-                                </button>
-                            </Card>
-                        </div>
-                    </div>
-                );
-            }
+            if (view === 'active_service') return <div className="p-6 screen-fade flex flex-col min-h-screen no-scrollbar"><div className="text-center mt-6 uppercase"><span className="bg-audit-600 text-white px-5 py-1.5 rounded-full text-[10px] font-black uppercase">Execução</span><h2 className="text-xl font-black mt-5">{activeAction.desc}</h2></div><div className="flex-1 flex flex-col justify-center items-center"><div className="text-7xl font-black timer-glow">{formatDuration(visualElapsed)}</div><p className="text-slate-400 font-black text-[11px] mt-2 uppercase">Hm Efetivo Total</p></div><div className="mt-auto pb-8"><button onClick={triggerPause} className="w-full bg-amber-500 py-5 rounded-3xl font-black mb-4">Pausar</button><Card><Label required>3 Fotos Depois</Label><div className="grid grid-cols-3 gap-2">{[0,1,2].map(i=><PhotoUpload key={i} label={`F${i+1}`} preview={activeAction.photosAfter?.[i]} onCapture={f=>handleCapture(f,'after')} processing={isPhotoProcessing}/>)}</div><button disabled={activeAction.photosAfter?.length<3 || isSaving} onClick={forceSaveTree} className="w-full mt-4 py-5 rounded-2xl bg-audit-900 text-white font-black">{isSaving?"Salvando...":"Finalizar"}</button></Card></div></div>;
 
-            if (view === 'global_pause_form' || view === 'pause_during_tree') {
-                const isOther = activeAction?.tempPauseReason === 'Outros';
-                return (
-                    <div className="p-6 screen-fade no-scrollbar">
-                        <h2 className="text-xl font-black text-slate-800 mb-6 uppercase italic leading-none">Registrar Parada</h2>
-                        <Card>
-                            <Label required>Motivo da Interrupção</Label>
-                            <select className="w-full p-4 border-2 rounded-2xl mb-4 font-black bg-white text-sm" value={activeAction?.tempPauseReason || ''} onChange={e => setActiveAction({...activeAction, tempPauseReason: e.target.value})}><option value="">Selecione...</option>{PAUSE_REASONS.map(r => <option key={r} value={r}>{r}</option>)}</select>
-                            {isOther && (<div className="mb-4"><Label required>Motivação Detalhada</Label><textarea className="w-full p-3 border-2 border-amber-300 rounded-2xl text-sm font-black uppercase" rows="3" placeholder="DESCREVA O MOTIVO..." value={activeAction.customPauseReason || ''} onChange={e => setActiveAction({...activeAction, customPauseReason: e.target.value})} /></div>)}
-                            <Label required>Foto Evidência (Obrigatório)</Label>
-                            <PhotoUpload label="FOTO PAUSA" processing={isPhotoProcessing} onCapture={f => handleCapture(f, 'pause')} preview={activeAction?.tempPausePhoto} />
-                        </Card>
-                        <button disabled={!activeAction?.tempPauseReason || !activeAction?.tempPausePhoto || (isOther && !activeAction.customPauseReason) || isPhotoProcessing} onClick={async () => { 
-                            const now = Date.now();
-                            const isNewPause = !activeAction?.startTime;
-                            const na = { ...activeAction, type: activeAction?.type || 'pause', isPaused: true, pauseStartTime: now, startTime: isNewPause ? now : activeAction.startTime, pauseCoords: `${gps.lat},${gps.lng}` };
-                            setActiveAction(na); await idbKeyval.set('mcr_active_v18_final', na);
-                            setVisualPause(0); setView('active_pause_screen'); 
-                            
-                            // Envia Rastreabilidade em Background
-                            const pausePayload = { data_referencia: shift.journeyDate, operador_encarregado: shift.operador, especie: "PAUSA_GERAL", status_servico: "PAUSA_REGISTRADA", coordenadas: `${gps.lat},${gps.lng}`, hm_manejo_seg: 0 };
-                            // Sem await para não travar
-                            const p = window.supabase.from('registros_poda').insert([pausePayload]);
-                        }} className="w-full py-6 rounded-3xl bg-amber-600 text-white font-black text-xl shadow-xl disabled:bg-slate-300 uppercase italic">Confirmar Pausa</button>
-                        <button onClick={()=>setView(activeAction.type==='tree' ? 'active_service' : 'dashboard')} className="w-full p-5 text-slate-400 font-black uppercase text-[10px] tracking-widest underline decoration-dotted">Voltar</button>
-                    </div>
-                );
-            }
+            if (view === 'global_pause_form' || view === 'active_pause_screen') return <div className="p-6 flex flex-col min-h-screen bg-slate-900 text-white justify-center items-center"><h2 className="text-2xl font-black text-amber-500 mb-6">{activeAction?.isPaused ? "EM PAUSA" : "REGISTRAR PAUSA"}</h2>{activeAction?.isPaused ? <><div className="text-7xl font-mono font-black mb-12">{formatDuration(visualElapsed)}</div><button onClick={async()=>{ const pDur=Math.floor((Date.now()-activeAction.pauseStartTime)/1000); if(activeAction.type==='pause'){const nl={...activeAction,synced:true,endTime:Date.now(),durationSec:pDur,status:'PAUSA',timestamp:new Date().toISOString(),totalPausedSeconds:pDur}; await idbKeyval.set('mcr_logs_v18_final',[nl,...logs]); setLogs([nl,...logs]); setActiveAction(null); setView('dashboard'); setTimeout(()=>pushData({...nl,status_servico:'PAUSA_REGISTRADA',hm_manejo_seg:0}),500); } else { const na={...activeAction,isPaused:false,totalPausedSeconds:(activeAction.totalPausedSeconds||0)+pDur}; setActiveAction(na); setView('active_service'); } }} className="bg-emerald-600 text-white py-6 px-12 rounded-full font-black text-xl">Retomar</button></> : <><Card className="w-full text-slate-800"><Label>Motivo</Label><select className="w-full p-4 border-2 rounded-2xl" onChange={e=>setActiveAction({...activeAction,tempPauseReason:e.target.value})}><option>Selecione...</option>{PAUSE_REASONS.map(r=><option key={r} value={r}>{r}</option>)}</select></Card><button onClick={triggerPause} className="w-full py-6 bg-amber-500 text-black font-black text-xl rounded-3xl mt-6">Iniciar Pausa</button><button onClick={()=>setView('dashboard')} className="mt-6 text-slate-400 font-bold">Cancelar</button></>}</div>;
 
-            if (view === 'active_pause_screen') return (
-                <div className="p-6 screen-fade flex flex-col min-h-screen bg-slate-900 text-white no-scrollbar">
-                    <div className="text-center mt-12 px-4"><span className="bg-amber-500 text-black px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest shadow-md">Serviço Suspenso</span><h2 className="text-2xl font-black uppercase mt-6 text-amber-500 leading-tight">{activeAction.tempPauseReason === 'Outros' ? activeAction.customPauseReason : activeAction.tempPauseReason}</h2></div>
-                    <div className="flex-1 flex flex-col justify-center items-center px-2">
-                        <div className="fit-timer font-black text-amber-500 pause-glow font-mono leading-none tracking-tighter">{formatDuration(visualPause)}</div>
-                        <p className="text-[10px] font-black text-slate-500 mt-4 uppercase tracking-widest tracking-[0.2em]">Cronômetro de Parada</p>
-                    </div>
-                    <button onClick={async () => { 
-                        const pDur = Math.floor((Date.now() - activeAction.pauseStartTime) / 1000); 
-                        if (activeAction.type === 'pause') { 
-                            const newLog = {...activeAction, synced: true, endTime: Date.now(), durationSec: pDur, status: 'PAUSA', timestamp: new Date().toISOString(), coords: activeAction.pauseCoords || `${gps.lat},${gps.lng}`, totalPausedSeconds: pDur};
-                            const updatedLogs = [newLog, ...logs];
-                            await idbKeyval.set('mcr_logs_v18_final', updatedLogs); setLogs(updatedLogs); 
-                            setActiveAction(null); await idbKeyval.del('mcr_active_v18_final');
-                            setView('dashboard'); 
-                        } else { 
-                            const newAction = {...activeAction, isPaused: false, totalPausedSeconds: (activeAction.totalPausedSeconds || 0) + pDur, tempPauseReason: null, tempPausePhoto: null, customPauseReason: null};
-                            setActiveAction(newAction); await idbKeyval.set('mcr_active_v18_final', newAction);
-                            setView('active_service'); 
-                        }
-                    }} className="bg-emerald-600 text-white py-8 rounded-[2.5rem] font-black text-2xl mb-12 uppercase shadow-xl tracking-tighter mx-4 btn-active transition-all italic">Retomar Operação</button>
-                </div>
-            );
-
-            if (view === 'end_day') return (
-                <div className="p-6 screen-fade text-center pb-12 no-scrollbar min-h-screen flex flex-col justify-center">
-                    <i className="fas fa-check-circle text-audit-600 text-7xl mb-6"></i><h2 className="text-3xl font-black text-audit-900 uppercase leading-none tracking-tighter">Turno Finalizado</h2>
-                    <Card className="bg-emerald-50 mt-10 text-left border-audit-200 p-6 shadow-emerald-50">
-                        <div className="flex justify-between border-b border-emerald-100 pb-2 mb-2 font-black"><span className="text-[10px] text-emerald-600 uppercase tracking-widest">Hm Efetivo:</span><span className="text-base font-mono">{formatDuration(stats.work)}</span></div>
-                        <div className="flex justify-between font-black text-audit-900"><span className="text-[11px] uppercase tracking-widest">Jornada Total:</span><span className="text-lg font-mono">{formatDuration(stats.journey)}</span></div>
-                    </Card>
-                    <div className="p-5 bg-amber-50 rounded-3xl border-2 border-amber-200 mt-8 text-left">
-                        <p className="text-[11px] font-black text-amber-700 uppercase mb-2 leading-tight tracking-wider"><i className="fas fa-file-csv mr-2"></i>Relatório Diário:</p>
-                        <p className="text-[11px] text-amber-900 font-medium leading-relaxed leading-tight">O botão abaixo gera a planilha <b>CSV (Excel)</b> e organiza suas fotos. <b>O sistema removeu as senhas para facilitar o seu trabalho mensal.</b> Os dados georreferenciados já foram salvos administrativamente.</p>
-                    </div>
-                    <button disabled={isExporting} onClick={handleFinalExport} className="w-full py-8 mt-10 rounded-[2.5rem] bg-audit-600 text-white font-black text-2xl shadow-xl uppercase tracking-tighter flex items-center justify-center gap-4 btn-active italic tracking-widest shadow-emerald-100">
-                        {isExporting ? <><i className="fas fa-spinner fa-spin"></i>Gerando...</> : <><i className="fas fa-file-download"></i>Baixar Relatório</>}
-                    </button>
-                    <button onClick={()=>setView('dashboard')} className="mt-8 text-slate-300 font-black uppercase text-[10px] tracking-widest underline underline-offset-4">Voltar ao Painel</button>
-                </div>
-            );
+            if (view === 'end_day') return <div className="p-6 text-center"><i className="fas fa-check-circle text-audit-600 text-7xl mb-6"></i><h2 className="text-3xl font-black">Turno Finalizado</h2><Card className="bg-emerald-50 mt-10 text-left p-6"><div className="flex justify-between border-b pb-2 mb-2 font-black"><span>Hm Efetivo:</span><span>{formatDuration(stats.work)}</span></div><div className="flex justify-between font-black"><span>Jornada Total:</span><span>{formatDuration(stats.journey)}</span></div></Card><button onClick={handleFinalExport} className="w-full py-8 mt-10 rounded-[2.5rem] bg-audit-600 text-white font-black text-2xl shadow-xl">Baixar Relatório</button></div>;
 
             return null;
         };
