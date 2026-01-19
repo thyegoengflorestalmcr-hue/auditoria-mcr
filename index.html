@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SGP AUDIT v18.8 | MCR MObile</title>
+    <title>SGP AUDIT v18.10 | MCR Mobile</title>
     
     <!-- Bibliotecas Core -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -67,7 +67,7 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef } = React;
 
-        // --- SEGURANÇA SILENCIOSA (Backend Logic) ---
+        // --- SEGURANÇA SILENCIOSA ---
         const gerarAssinaturaSeguranca = (texto) => {
             let hash = 0;
             if (texto.length === 0) return hash;
@@ -91,7 +91,7 @@
             { id: "corte_protocolo", label: "Corte com Protocolo/Laudo" }
         ];
 
-        // NOVA LISTA COMPLETA FORNECIDA
+        // LISTA COMPLETA
         const LISTA_ESPECIES = [
             "Araucária (Pinheiro-do-paraná) [AMEAÇADA / IMUNE]", "Cedro [AMEAÇADA]", "Imbuia [AMEAÇADA / IMUNE]", 
             "Peroba-rosa [AMEAÇADA]", "Canela-preta [AMEAÇADA]", "Jacarandá-da-bahia [AMEAÇADA]", "Pau-brasil [AMEAÇADA]",
@@ -150,7 +150,7 @@
             const [activeAction, setActiveAction] = useState(null);
             const [gps, setGps] = useState({ lat: null, lng: null });
             
-            // Variáveis visuais (apenas para exibição)
+            // Variáveis visuais
             const [visualElapsed, setVisualElapsed] = useState(0); 
             const [visualPause, setVisualPause] = useState(0);
             const [visualJourney, setVisualJourney] = useState(0);
@@ -159,7 +159,7 @@
             const [isExporting, setIsExporting] = useState(false);
             const [isPhotoProcessing, setIsPhotoProcessing] = useState(false);
 
-            // --- PROTEÇÃO DE DADOS (Salvar ao sair) ---
+            // --- PROTEÇÃO DE DADOS ---
             const saveData = async () => {
                 if (shift?.active) await idbKeyval.set('mcr_shift_v18_final', shift);
                 if (activeAction) await idbKeyval.set('mcr_active_v18_final', activeAction); else await idbKeyval.del('mcr_active_v18_final');
@@ -177,11 +177,7 @@
                     setView(s?.active ? 'dashboard' : 'setup');
                 };
                 load();
-
-                // Listener para salvar quando minimizar
-                document.addEventListener("visibilitychange", () => {
-                    if (document.hidden) saveData();
-                });
+                document.addEventListener("visibilitychange", () => { if (document.hidden) saveData(); });
             }, []);
 
             useEffect(() => { saveData(); }, [shift, activeAction, logs]);
@@ -195,7 +191,56 @@
                 return () => navigator.geolocation.clearWatch(watchId);
             }, []);
 
-            // --- CRONÔMETRO ---
+            // --- SYNC SILENCIOSO COM TRATAMENTO DE ERRO ---
+            useEffect(() => {
+                const autoSync = setInterval(async () => {
+                    if (!navigator.onLine || !shift?.active || !window.supabase) return;
+                    
+                    const allLogs = await idbKeyval.get('mcr_logs_v18_final') || [];
+                    const toSync = allLogs.filter(l => !l.synced && l.status !== 'EM_ANDAMENTO');
+
+                    for (let item of toSync) {
+                        try {
+                            const hmEfetivo = item.executionDurationSec ? (item.executionDurationSec - (item.totalPausedSeconds || 0)) : 0;
+                            const assinatura = gerarAssinaturaSeguranca(`${item.species}${hmEfetivo}THYEGO_CLOUD`);
+
+                            // CORREÇÃO AQUI: "especie" sem acento
+                            const { error } = await window.supabase.from('registros_poda').insert([{
+                                data_referencia: shift.journeyDate,
+                                operador_encarregado: shift.operador,
+                                rt_responsavel: shift.rt,
+                                tst_responsavel: shift.tst,
+                                placa: shift.placa,
+                                auxiliares: shift.auxiliares,
+                                especie: item.species, // CAMPO CORRIGIDO PARA O BANCO NOVO
+                                cap: item.cap,
+                                altura: item.height,
+                                hm_manejo_seg: hmEfetivo,
+                                pausa_total_seg: item.totalPausedSeconds,
+                                coordenadas: item.coords || `POINT(${gps.lng} ${gps.lat})`,
+                                fotos_antes: item.photosBefore,
+                                fotos_depois: item.photosAfter,
+                                metadados_auditoria: item.metadata_array, 
+                                status_servico: item.status,
+                                meta_seguranca: assinatura
+                            }]);
+                            
+                            if (error) {
+                                console.error("Erro Sync:", error);
+                                // ALERTA VISUAL SE DER ERRO (Para você saber)
+                                if (logs.length < 5) alert(`FALHA NO ENVIO: ${error.message}`); 
+                            } else {
+                                item.synced = true;
+                                setLogs([...allLogs]);
+                                await idbKeyval.set('mcr_logs_v18_final', allLogs);
+                            }
+                        } catch (e) { console.log("Sync wait...", e); }
+                    }
+                }, 15000);
+                return () => clearInterval(autoSync);
+            }, [shift, logs, gps]);
+
+            // Cronômetro
             useEffect(() => {
                 const timer = setInterval(() => {
                     const now = Date.now();
@@ -213,56 +258,9 @@
                 return () => clearInterval(timer);
             }, [activeAction, shift]);
 
-            // --- SYNC SILENCIOSO ---
-            useEffect(() => {
-                const autoSync = setInterval(async () => {
-                    if (!navigator.onLine || !shift?.active || !window.supabase) return;
-                    
-                    const allLogs = await idbKeyval.get('mcr_logs_v18_final') || [];
-                    const toSync = allLogs.filter(l => !l.synced && l.status !== 'EM_ANDAMENTO');
-
-                    for (let item of toSync) {
-                        try {
-                            const hmEfetivo = item.executionDurationSec ? (item.executionDurationSec - (item.totalPausedSeconds || 0)) : 0;
-                            // Hash de segurança para a nuvem
-                            const assinatura = gerarAssinaturaSeguranca(`${item.species}${hmEfetivo}THYEGO_CLOUD`);
-
-                            const { error } = await window.supabase.from('registros_poda').insert([{
-                                data_referencia: shift.journeyDate,
-                                operador_encarregado: shift.operador,
-                                rt_responsavel: shift.rt,
-                                tst_responsavel: shift.tst,
-                                placa: shift.placa,
-                                auxiliares: shift.auxiliares,
-                                espécie: item.species,
-                                cap: item.cap,
-                                altura: item.height,
-                                hm_manejo_seg: hmEfetivo,
-                                pausa_total_seg: item.totalPausedSeconds,
-                                coordenadas: item.coords || `POINT(${gps.lng} ${gps.lat})`,
-                                fotos_antes: item.photosBefore,
-                                fotos_depois: item.photosAfter,
-                                metadados_auditoria: item.metadata_array, 
-                                status_servico: item.status,
-                                meta_seguranca: assinatura
-                            }]);
-                            
-                            if (!error) {
-                                item.synced = true;
-                                setLogs([...allLogs]);
-                                await idbKeyval.set('mcr_logs_v18_final', allLogs);
-                            }
-                        } catch (e) { console.log("Sync wait..."); }
-                    }
-                }, 20000);
-                return () => clearInterval(autoSync);
-            }, [shift, logs, gps]);
-
-            // Captura de Foto
             const handleCapture = async (file, type) => {
                 if (!file) return;
                 setIsPhotoProcessing(true);
-                
                 const metadata = await new Promise(resolve => {
                     EXIF.getData(file, function() {
                         const tags = EXIF.getAllTags(this);
@@ -275,7 +273,6 @@
                         });
                     });
                 });
-
                 const options = { maxSizeMB: 0.15, maxWidthOrHeight: 1024, useWebWorker: true, initialQuality: 0.7 };
                 try {
                     const compressed = await imageCompression(file, options);
@@ -284,7 +281,6 @@
                         reader.readAsDataURL(compressed);
                         reader.onloadend = () => r(reader.result);
                     });
-
                     if (type === 'before') setActiveAction(a => ({...a, photosBefore: [...(a.photosBefore || []), base64], metadata_array: [...(a.metadata_array || []), metadata]}));
                     if (type === 'after') setActiveAction(a => ({...a, photosAfter: [...(a.photosAfter || []), base64]}));
                     if (type === 'shift') setShift(s => ({...s, foto_unificada: base64}));
@@ -302,11 +298,9 @@
                     const pausedInTree = log.totalPausedSeconds || 0;
                     return acc + (bruteExec - pausedInTree);
                 }, 0);
-
                 const hmTotalEfetivo = totalFormSec + totalManejoPuroSec;
                 const journeySec = visualJourney;
                 const logisticSec = Math.max(0, journeySec - hmTotalEfetivo);
-                
                 return { 
                     work: hmTotalEfetivo, 
                     preparo: totalFormSec,
@@ -315,16 +309,15 @@
                     journey: journeySec, 
                     totalTrees: logs.filter(l => l.type === 'tree').length,
                     treesPruned: treeLogs.filter(t => t.pruningTypes?.some(p => !p.includes('CORTE'))).length,
-                    treesSuppressed: treeLogs.filter(t => t.pruningTypes?.some(p => p.includes('CORTE'))).length
+                    treesSuppressed: treeLogs.filter(t => t.pruningTypes?.some(p => p.includes('CORTE'))).length,
+                    syncedCount: logs.filter(l => l.synced).length
                 };
             }, [logs, visualJourney]);
 
-            // --- EXPORTAÇÃO FINAL ---
             const handleFinalExport = async () => {
                 setIsExporting(true);
                 try {
                     const zip = new JSZip();
-                    
                     let csv = "DATA;STATUS;ESPECIE;CAP;ALTURA;OS;HM_EFETIVO;PAUSA_SEG;GPS;OPERADOR;CODIGO_VERIFICACAO\n";
                     logs.forEach(l => {
                         const hm = (l.executionDurationSec || 0) - (l.totalPausedSeconds || 0);
@@ -333,7 +326,6 @@
                         csv += `${shift.journeyDate};${l.status};${l.species || 'PARADA'};${l.cap || ''};${l.height || ''};${l.osId || 'ROTINA'};${hm};${l.totalPausedSeconds || 0};${l.coords || ''};${shift.operador};${assinatura}\n`;
                     });
                     zip.file("RELATORIO_DIARIO_MCR.csv", csv);
-
                     const folder = zip.folder("EVIDENCIAS_FOTOGRAFICAS");
                     if(shift.foto_unificada) folder.file("00_DDS_ABERTURA.jpg", shift.foto_unificada.split(',')[1], {base64: true});
                     logs.forEach((l, idx) => {
@@ -342,13 +334,11 @@
                         if(l.photoProblem) folder.file(`ARV_${idx+1}_IMPEDIMENTO.jpg`, l.photoProblem.split(',')[1], {base64: true});
                         if(l.tempPausePhoto) folder.file(`PAUSA_${idx+1}.jpg`, l.tempPausePhoto.split(',')[1], {base64: true});
                     });
-
                     const blob = await zip.generateAsync({type:"blob"});
                     const a = document.createElement("a");
                     a.href = URL.createObjectURL(blob);
                     a.download = `RAD_PODA_MCR_${shift.operador}_${shift.journeyDate.replace(/\//g,'-')}.zip`;
                     a.click();
-                    
                     if(confirm("Download Concluído. Confirmar limpeza dos dados para o próximo turno?")) {
                         await idbKeyval.clear();
                         window.location.reload();
@@ -357,8 +347,7 @@
                 finally { setIsExporting(false); }
             };
 
-            // VIEWS
-            if (view === 'loading') return <div className="h-screen bg-audit-900 flex items-center justify-center text-white font-black italic tracking-widest animate-pulse">SGP AUDIT v18.8...</div>;
+            if (view === 'loading') return <div className="h-screen bg-audit-900 flex items-center justify-center text-white font-black italic tracking-widest animate-pulse">SGP AUDIT v18.10...</div>;
 
             if (view === 'setup') return (
                 <div className="p-6 screen-fade pb-20 no-scrollbar">
@@ -403,6 +392,7 @@
                         <div className="text-right">
                             <p className="text-[9px] font-black text-slate-400 uppercase">{shift.journeyDate}</p>
                             <p className="text-[8px] font-bold text-audit-600 uppercase">{gps.lat ? 'GPS ATIVO' : 'Buscando GPS...'}</p>
+                            <p className="text-[7px] font-bold text-emerald-600 uppercase">{stats.syncedCount} ENVIADOS</p>
                         </div>
                     </div>
                     <div className="p-5">
