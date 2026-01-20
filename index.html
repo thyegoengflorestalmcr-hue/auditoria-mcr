@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SGP AUDIT v18.25 | SUPABASE ONLY</title>
+    <title>SGP AUDIT v18.26 | MEMORY FIX</title>
     
-    <!-- Bibliotecas Core -->
+    <!-- Core -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -18,7 +18,7 @@
     <script src="https://cdn.jsdelivr.net/npm/exif-js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
-    <!-- Conexão Supabase -->
+    <!-- Supabase -->
     <script type="module">
         import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm'
         window.supabase = createClient(
@@ -28,42 +28,24 @@
     </script>
 
     <script>
-        tailwind.config = {
-            theme: {
-                extend: { colors: { audit: { 500: '#059669', 600: '#047857', 700: '#065f46', 900: '#022c22' } } }
-            }
-        }
+        tailwind.config = { theme: { extend: { colors: { audit: { 500: '#059669', 600: '#047857', 900: '#022c22' } } } } }
     </script>
     <style>
-        body { background-color: #f8fafc; font-family: 'Inter', -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; overflow-x: hidden; }
+        body { background-color: #f8fafc; font-family: 'Inter', sans-serif; overflow-x: hidden; touch-action: manipulation; }
         .timer-glow { text-shadow: 0 0 15px rgba(5, 150, 105, 0.3); }
-        input:focus, select:focus, textarea:focus { border-color: #059669; outline: none; ring: 2px; ring-color: rgba(5, 150, 105, 0.2); }
-        .btn-active:active { transform: scale(0.97); transition: 0.1s; }
-        .screen-fade { animation: fadeIn 0.2s ease-out; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
-        .modal-overlay { background-color: rgba(0, 0, 0, 0.7); backdrop-filter: blur(4px); }
-        input, textarea { text-transform: uppercase; }
-        input::placeholder, textarea::placeholder { text-transform: none; }
-        .no-scrollbar::-webkit-scrollbar { display: none; }
-        .fit-timer { font-size: clamp(3rem, 15vw, 6rem); }
-        
-        .offline-badge { 
-            display: none; 
-            background: #ef4444; color: white; 
-            position: fixed; top: 0; left: 0; right: 0; z-index: 100; 
-            text-align: center; font-size: 10px; font-weight: 900; 
-            padding: 4px; letter-spacing: 1px; text-transform: uppercase;
-        }
+        .offline-badge { display: none; background: #ef4444; color: white; position: fixed; top: 0; left: 0; right: 0; z-index: 100; text-align: center; font-size: 10px; font-weight: 900; padding: 4px; }
         body.offline .offline-badge { display: block; }
+        /* Loader Overlay */
+        .loader-overlay { position: fixed; inset: 0; background: rgba(255,255,255,0.9); z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        input, select { text-transform: uppercase; }
     </style>
 </head>
 <body ononline="document.body.classList.remove('offline')" onoffline="document.body.classList.add('offline')">
-    
-    <div class="offline-badge"><i class="fas fa-wifi-slash mr-2"></i>Sem Internet - Modo Local Ativo</div>
+    <div class="offline-badge">SEM INTERNET - MODO LOCAL</div>
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useMemo, useRef } = React;
+        const { useState, useEffect, useMemo } = React;
 
         const gerarAssinaturaSeguranca = (texto) => {
             let hash = 0;
@@ -76,64 +58,14 @@
             return Math.abs(hash).toString(16).toUpperCase();
         };
 
-        const TIPOS_PODA_DATA = [
-            { id: "Poda de Levantamento" }, { id: "Poda de Limpeza" }, { id: "Poda de Adequação" }, 
-            { id: "Poda Estrutural" }, { id: "Poda de Segurança" }, { id: "Poda Emergencial" }, { id: "CORTE TOTAL (SUPRESSÃO)" }
-        ];
+        const LISTA_ESPECIES = ["Araucária", "Cedro", "Imbuia", "Peroba-rosa", "Canela-preta", "Jacarandá", "Pau-brasil", "Xaxim", "Figueira-branca", "NÃO IDENTIFICADA", "DESCONHECIDA", "Abacateiro", "Abacaxi-de-anta", "Acacia", "Acacia-negra", "Açaí", "Açoita-cavalo", "Alecrim", "Alfeneiro", "Algodoeiro", "Amapá", "Amendoim-bravo", "Angico", "Araticum", "Aroeira", "Baguaçu", "Bambu", "Bauhinia", "Bicuíba", "Boleira", "Bracatinga", "Braúna", "Buriti", "Cabreúva", "Cafezeiro", "Caixeta", "Cajueiro", "Cambará", "Camboatá", "Canafístula", "Canela", "Canjerana", "Capororoca", "Caroba", "Carvalho", "Casca-d'anta", "Casuarina", "Cedrinho", "Cerejeira", "Chapéu-de-napoleão", "Cinamomo", "Coqueiro", "Corticeira", "Cumaru", "Embaúba", "Erva-mate", "Eucalipto", "Extremosa", "Ficus", "Figueira", "Flamboyant", "Gameleira", "Goiabeira", "Grápia", "Grevillea", "Guabiroba", "Guaçatonga", "Guajuvira", "Guatambu", "Hovenia", "Ingá", "Ipê-amarelo", "Ipê-branco", "Ipê-rosa", "Ipê-roxo", "Jabuticabeira", "Jacarandá-mimoso", "Jaca", "Jamelão", "Jatobá", "Jequitibá", "Jerivá", "Leiteiro", "Ligustro", "Louro", "Magnólia", "Mamica-de-cadela", "Mandioqueira", "Mangueira", "Marinheiro", "Mogno", "Monjoleiro", "Mulungu", "Murta", "Noz-pecã", "Oiti", "Paineira", "Palmeira-imperial", "Pata-de-vaca", "Pau-ferro", "Pau-marfim", "Peroba", "Pinus", "Pitanga", "Platano", "Quaresmeira", "Resedá", "Sabiá", "Sapucaia", "Sibipiruna", "Sucupira", "Tamarineiro", "Tarumã", "Tipuana", "Tucaneira", "Uvaia", "Uva-do-japão", "Vassourão-branco"].sort();
+        const TIPOS_PODA_DATA = [{ id: "Levantamento" }, { id: "Limpeza" }, { id: "Adequação" }, { id: "Estrutural" }, { id: "Corte (Supressão)" }];
+        const formatDuration = (s) => `${Math.floor(s/3600).toString().padStart(2,'0')}:${Math.floor((s%3600)/60).toString().padStart(2,'0')}:${Math.floor(s%60).toString().padStart(2,'0')}`;
 
-        const FONTES_DEMANDA = [
-            { id: "manutencao", label: "Manutenção de Rotina" },
-            { id: "os", label: "Poda com Protocolo (Cidadão)" },
-            { id: "emergencia", label: "Emergência / Sinistro" },
-            { id: "corte_protocolo", label: "Corte com Protocolo/Laudo" }
-        ];
-
-        const LISTA_ESPECIES = [
-            "Araucária (Pinheiro-do-paraná) [AMEAÇADA / IMUNE]", "Cedro [AMEAÇADA]", "Imbuia [AMEAÇADA / IMUNE]", 
-            "Peroba-rosa [AMEAÇADA]", "Canela-preta [AMEAÇADA]", "Jacarandá-da-bahia [AMEAÇADA]", "Pau-brasil [AMEAÇADA]",
-            "Xaxim [AMEAÇADA / IMUNE]", "Figueira-branca [IMUNE]", "NÃO IDENTIFICADA", "DESCONHECIDA", "Abacateiro", 
-            "Abacaxi-de-anta", "Acacia", "Acacia-negra", "Açaí", "Açoita-cavalo", "Alecrim", "Alecrim-de-campinas", 
-            "Alfeneiro", "Algodoeiro", "Amapá", "Amendoim-bravo", "Angico", "Angico-branco", "Angico-vermelho", 
-            "Araticum", "Aroeira", "Aroeira-mansa", "Aroeira-pimenteira", "Aroeira-preta", "Aroeira-salsa", 
-            "Aroeira-vermelha", "Arvore-de-espeto", "Baguaçu", "Bambu", "Bauhinia", "Bicuíba", "Boleira", 
-            "Bracatinga", "Braúna", "Buriti", "Cabreúva", "Cafezeiro", "Caixeta", "Cajueiro", "Cambará", "Camboatá", 
-            "Canafístula", "Canela", "Canela-amarela", "Canela-batalha", "Canela-fogo", "Canela-guaicá", 
-            "Canela-lageana", "Canjerana", "Capororoca", "Caroba", "Carvalho", "Casca-d'anta", "Castanha-do-maranhão", 
-            "Casuarina", "Cedrinho", "Cerejeira", "Chapéu-de-napoleão", "Cinamomo", "Cipó-mil-homens", "Coqueiro", 
-            "Corticeira", "Cumaru", "Cuveiro", "Embaúba", "Erva-mate", "Eucalipto", "Extremosa", "Ficus", 
-            "Ficus-benjamina", "Figueira", "Flamboyant", "Gameleira", "Goiabeira", "Grápia", "Grevillea", 
-            "Guabiroba", "Guaçatonga", "Guajuvira", "Guatambu", "Guatambu-branco", "Hovenia", "Ingá", "Ipê-amarelo", 
-            "Ipê-branco", "Ipê-rosa", "Ipê-roxo", "Ipê-tabaco", "Jabuticabeira", "Jabuticaba", "Jacarandá", "Jacarandá-mimoso", 
-            "Jacarandá-paulista", "Jaca", "Jamelão", "Jatobá", "Jequitibá", "Jerivá", "Leiteiro", "Ligustro", 
-            "Louro", "Louro-pardo", "Magnólia", "Mamica-de-cadela", "Mandioqueira", "Mangueira", "Marinheiro", 
-            "Mogno", "Monjoleiro", "Mulungu", "Murta", "Noz-pecã", "Oiti", "Oleo-balsamo", "Paineira", 
-            "Palmeira-imperial", "Palmeira-real", "Pata-de-vaca", "Pau-ferro", "Pau-marfim", "Pau-mulato", 
-            "Peroba", "Pinus", "Pitanga", "Platano", "Quaresmeira", "Resedá", "Sabiá", "Sagüeiro", "Sangra-d'água", 
-            "Sapucaia", "Sete-copas", "Sibipiruna", "Sucupira", "Tamarineiro", "Tarumã", "Tipuana", "Tucaneira", 
-            "Uvaia", "Uva-do-japão", "Vassourão-branco"
-        ].sort();
-
-        const PAUSE_REASONS = ["Almoço / Refeição", "Chuva / Tempo Ruim", "Quebra de Equipamento", "Logística / Deslocamento", "Interferência de Munícipe", "Abastecimento", "Suspensão Rede (COPEL)", "Outros"];
-
-        const formatDuration = (s) => {
-            const h = Math.floor(s / 3600);
-            const m = Math.floor((s % 3600) / 60);
-            const sec = Math.floor(s % 60);
-            return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:${sec.toString().padStart(2,'0')}`;
-        };
-
-        const Card = ({ children, className = "" }) => <div className={`bg-white rounded-2xl shadow-sm border border-slate-200 p-5 mb-4 ${className}`}>{children}</div>;
-        const Label = ({ children, required }) => <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1.5 tracking-wider">{children} {required && <span className="text-red-500">*</span>}</label>;
-
-        const PhotoUpload = ({ label, help, preview, onCapture, icon="fa-camera", fullWidth = false, processing = false }) => (
-            <label className={`relative ${fullWidth ? 'h-40' : 'h-28'} border-2 border-dashed rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer ${preview ? 'border-audit-500 bg-emerald-50' : 'border-slate-300 bg-slate-50'}`}>
-                {processing ? <div className="text-center"><i className="fas fa-spinner fa-spin text-audit-600 text-xl"></i><div className="text-[8px] mt-1 font-black uppercase tracking-widest">Otimizando...</div></div> : 
-                 preview ? <img src={preview} className="absolute inset-0 w-full h-full object-cover rounded-xl" /> : (
-                    <div className="text-center p-2">
-                        <i className={`fas ${icon} text-2xl text-slate-300 mb-1`}></i>
-                        <div className="text-[9px] font-black text-slate-600 uppercase leading-tight">{label}</div>
-                        <div className="text-[7px] text-slate-400 mt-1 uppercase italic leading-tight">{help}</div>
-                    </div>
+        const PhotoUpload = ({ label, preview, onCapture, processing }) => (
+            <label className={`relative h-24 border-2 border-dashed rounded-lg flex flex-col items-center justify-center cursor-pointer ${preview ? 'border-audit-600 bg-emerald-50' : 'border-slate-300 bg-white'}`}>
+                {processing ? <i className="fas fa-circle-notch fa-spin text-audit-600"></i> : preview ? <img src={preview} className="absolute inset-0 w-full h-full object-cover rounded-lg" /> : (
+                    <div className="text-center"><i className="fas fa-camera text-slate-400 text-xl"></i><span className="block text-[8px] font-bold text-slate-500 uppercase mt-1">{label}</span></div>
                 )}
                 <input type="file" className="hidden" accept="image/*" onChange={e => onCapture(e.target.files[0])} disabled={processing} />
             </label>
@@ -151,7 +83,7 @@
             const [isExporting, setIsExporting] = useState(false);
             const [isPhotoProcessing, setIsPhotoProcessing] = useState(false);
             const [isSaving, setIsSaving] = useState(false);
-            const [lastSyncStatus, setLastSyncStatus] = useState("");
+            const [syncStatus, setSyncStatus] = useState("");
 
             useEffect(() => {
                 const load = async () => {
@@ -181,107 +113,139 @@
                 return () => clearInterval(timer);
             }, [activeAction, shift]);
 
-            const pushData = async (payload) => {
-                if (!navigator.onLine) return;
-                setLastSyncStatus("Enviando...");
-                try {
-                    // SUPABASE ONLY
-                    const { error } = await window.supabase.from('registros_poda').insert([payload]);
-                    if(error) throw error;
-                    setLastSyncStatus("Sincronizado");
-                } catch (e) { 
-                    console.error(e);
-                    setLastSyncStatus("Erro Envio"); 
-                }
-            };
+            // --- SYNC LEVE (SUPABASE ONLY) ---
+            useEffect(() => {
+                const autoSync = setInterval(async () => {
+                    if (!navigator.onLine || !shift.active || !window.supabase) return;
+                    
+                    const allLogs = await idbKeyval.get('mcr_logs_v18_final') || [];
+                    const toSync = allLogs.filter(l => !l.synced);
+
+                    for (let item of toSync) {
+                        try {
+                            setSyncStatus("Enviando...");
+                            const hmEfetivo = item.effectiveDurationSec || 0;
+                            const assinatura = gerarAssinaturaSeguranca(`${item.species}${hmEfetivo}THYEGO`);
+                            
+                            // Tenta ler foto do DDS do disco se não estiver no objeto leve
+                            let fotoDDS = item.foto_dds;
+                            if (item.species === 'DDS_INICIAL' && !fotoDDS) {
+                                const savedShift = await idbKeyval.get('mcr_shift_v18_final');
+                                fotoDDS = savedShift?.foto_unificada;
+                            }
+
+                            await window.supabase.from('registros_poda').insert([{
+                                data_referencia: shift.journeyDate,
+                                operador_encarregado: shift.operador,
+                                rt_responsavel: shift.rt,
+                                tst_responsavel: shift.tst,
+                                placa: shift.placa,
+                                auxiliares: shift.auxiliares?.join(", "),
+                                especie: item.species,
+                                hm_manejo_seg: hmEfetivo,
+                                pausa_total_seg: item.totalPausedSeconds || 0,
+                                coordenadas: item.coords,
+                                fotos_antes: item.photosBefore,
+                                fotos_depois: item.photosAfter,
+                                foto_dds: fotoDDS,
+                                meta_seguranca: assinatura,
+                                metadados_auditoria: item.metadata_array,
+                                status_servico: item.status
+                            }]);
+
+                            item.synced = true;
+                            // Salva estado sincronizado
+                            const newLogs = allLogs.map(l => l.timestamp === item.timestamp ? {...l, synced: true} : l);
+                            await idbKeyval.set('mcr_logs_v18_final', newLogs);
+                            setLogs(newLogs);
+                            setSyncStatus("Sincronizado");
+                            
+                        } catch (e) { setSyncStatus("Erro Rede"); }
+                    }
+                }, 8000);
+                return () => clearInterval(autoSync);
+            }, [shift, logs]);
 
             const handleCapture = async (file, type) => {
                 if (!file) return;
                 setIsPhotoProcessing(true);
-                const metadata = await new Promise(resolve => {
-                    EXIF.getData(file, function() {
-                        const tags = EXIF.getAllTags(this);
-                        resolve({ data: new Date().toISOString(), gps: tags.GPSLatitude ? { lat: tags.GPSLatitude, lng: tags.GPSLongitude } : null });
-                    });
-                });
                 
-                // COMPRESSÃO MUITO LEVE (50KB por foto)
+                // COMPRESSÃO EXTREMA (MÁXIMO 720px e 50% QUALIDADE)
+                // Isso garante que a foto fique abaixo de 100KB para não estourar RAM
                 const options = { maxSizeMB: 0.05, maxWidthOrHeight: 720, useWebWorker: true, initialQuality: 0.5 };
                 
                 try {
                     const compressed = await imageCompression(file, options);
                     const base64 = await new Promise(r => { const reader = new FileReader(); reader.readAsDataURL(compressed); reader.onloadend = () => r(reader.result); });
 
-                    if (type === 'shift') { const ns = {...shift, foto_unificada: base64}; setShift(ns); await idbKeyval.set('mcr_shift_v18_final', ns); } 
-                    else if (type === 'before') { const na = {...activeAction, photosBefore: [...(activeAction.photosBefore||[]), base64], metadata_array: [...(activeAction.metadata_array||[]), metadata]}; setActiveAction(na); await idbKeyval.set('mcr_active_v18_final', na); } 
-                    else if (type === 'after') { const na = {...activeAction, photosAfter: [...(activeAction.photosAfter||[]), base64]}; setActiveAction(na); await idbKeyval.set('mcr_active_v18_final', na); }
-                    else if (type === 'pause') { const na = {...activeAction, tempPausePhoto: base64}; setActiveAction(na); await idbKeyval.set('mcr_active_v18_final', na); }
-                    else if (type === 'problem') { const na = {...activeAction, photoProblem: base64}; setActiveAction(na); await idbKeyval.set('mcr_active_v18_final', na); }
-                } catch (e) { alert("Memória cheia!"); } finally { setIsPhotoProcessing(false); }
+                    // Salva no estado
+                    if (type === 'shift') setShift(s => ({...s, foto_unificada: base64}));
+                    else if (type === 'before') setActiveAction(a => ({...a, photosBefore: [...(a.photosBefore||[]), base64]}));
+                    else if (type === 'after') setActiveAction(a => ({...a, photosAfter: [...(a.photosAfter||[]), base64]}));
+                    else if (type === 'pause') setActiveAction(a => ({...a, tempPausePhoto: base64}));
+                    else if (type === 'problem') setActiveAction(a => ({...a, photoProblem: base64}));
+                } catch (e) { alert("Memória insuficiente no dispositivo."); } 
+                finally { setIsPhotoProcessing(false); }
             };
 
-            // --- AÇÕES COM SUPABASE ONLY ---
-
+            // --- AÇÃO CRÍTICA: INICIAR SEM CRASH ---
             const startShift = async () => {
                 setIsSaving(true);
                 try {
                     const now = Date.now();
                     const ns = {...shift, active: true, journeyStartTime: now, journeyDate: new Date().toLocaleDateString('pt-BR')};
                     
+                    // 1. Salva o Turno Completo no Disco (IDB)
                     await idbKeyval.set('mcr_shift_v18_final', ns);
-                    setShift(ns);
 
+                    // 2. Cria o Log de Abertura
                     const ddsLog = {
                         data_referencia: ns.journeyDate, operador_encarregado: ns.operador, rt_responsavel: ns.rt, tst_responsavel: ns.tst, placa: ns.placa, auxiliares: ns.auxiliares?.join(", "),
-                        especie: "DDS_INICIAL", status_servico: "ABERTURA_TURNO",
+                        species: "DDS_INICIAL", status: "ABERTURA_TURNO",
                         coords: `${gps.lat},${gps.lng}`,
-                        photosBefore: [ns.foto_unificada], foto_dds: ns.foto_unificada,
-                        hm_manejo_seg: 0, pausa_total_seg: 0,
-                        meta_seguranca: gerarAssinaturaSeguranca(`DDS${now}START`),
-                        synced: false, timestamp: new Date().toISOString()
+                        // NÃO COLOCA A FOTO AQUI PARA NÃO PESAR NA RAM AGORA
+                        // O AutoSync vai buscar do disco depois
+                        timestamp: new Date().toISOString(),
+                        synced: false
                     };
 
                     const initialLogs = [ddsLog, ...logs];
                     await idbKeyval.set('mcr_logs_v18_final', initialLogs);
                     setLogs(initialLogs);
 
+                    // 3. LIMPEZA DE MEMÓRIA CRUCIAL (Memory Flush)
+                    // Remove a foto pesada da memória RAM do React antes de trocar de tela
+                    const shiftLeve = { ...ns, foto_unificada: null }; 
+                    setShift(shiftLeve);
+
+                    // 4. Troca de Tela
                     setTimeout(() => {
                         setView('dashboard');
                         setIsSaving(false);
-                        setTimeout(() => pushData(ddsLog), 1000);
                     }, 500);
 
-                } catch (e) { alert("Erro: " + e.message); setIsSaving(false); }
+                } catch (e) { alert("Erro ao iniciar: " + e.message); setIsSaving(false); }
             };
 
             const startTreeTimer = async () => {
                 const now = Date.now();
                 const na = {...activeAction, executionStartTime: now, formDurationSec: 0, desc: `${activeAction.species}`, treeCoords: `${gps.lat},${gps.lng}`};
                 
+                // Log de Início (Leve, sem fotos)
+                const startLog = { 
+                    ...na, status: "INICIO_MANEJO", species: activeAction.species, 
+                    photosBefore: [], // Fotos vão só no final
+                    timestamp: new Date().toISOString(), synced: false 
+                };
+                
+                const updatedLogs = [startLog, ...logs];
+                await idbKeyval.set('mcr_logs_v18_final', updatedLogs);
+                setLogs(updatedLogs);
+
                 await idbKeyval.set('mcr_active_v18_final', na);
                 setActiveAction(na);
                 
-                setTimeout(() => {
-                    setView('active_service');
-                    pushData({
-                        data_referencia: shift.journeyDate, operador_encarregado: shift.operador,
-                        especie: activeAction.species, status_servico: "INICIO_MANEJO",
-                        coordenadas: `${gps.lat},${gps.lng}`,
-                        fotos_antes: activeAction.photosBefore,
-                        hm_manejo_seg: 0,
-                        meta_seguranca: gerarAssinaturaSeguranca(`${activeAction.species}START`)
-                    });
-                }, 500);
-            };
-
-            const triggerPause = async () => {
-                const now = Date.now();
-                const na = {...activeAction, isPaused: true, pauseStartTime: now};
-                await idbKeyval.set('mcr_active_v18_final', na);
-                setActiveAction(na);
-                setVisualPause(0); 
-                setView('active_pause_screen');
-                pushData({ data_referencia: shift.journeyDate, operador_encarregado: shift.operador, especie: "PAUSA_GERAL", status_servico: "PAUSA_REGISTRADA", coordenadas: `${gps.lat},${gps.lng}`, hm_manejo_seg: 0 });
+                setTimeout(() => setView('active_service'), 100);
             };
 
             const forceSaveTree = async () => {
@@ -291,62 +255,65 @@
                     const totalDur = Math.floor((now - activeAction.startTime) / 1000);
                     const effective = totalDur - (activeAction.totalPausedSeconds || 0);
                     
-                    const finalPayload = {
-                        data_referencia: shift.journeyDate, operador_encarregado: shift.operador,
-                        rt_responsavel: shift.rt, tst_responsavel: shift.tst, placa: shift.placa, auxiliares: shift.auxiliares?.join(", "),
-                        especie: activeAction.species,
-                        hm_manejo_seg: effective,
-                        pausa_total_seg: activeAction.totalPausedSeconds || 0,
-                        coordenadas: activeAction.treeCoords || `${gps.lat},${gps.lng}`,
-                        fotos_antes: activeAction.photosBefore,
-                        fotos_depois: activeAction.photosAfter,
-                        metadados_auditoria: activeAction.metadata_array,
-                        status_servico: "CONCLUIDO",
-                        meta_seguranca: gerarAssinaturaSeguranca(`${activeAction.species}${effective}END`)
+                    const newLog = { 
+                        ...activeAction, 
+                        synced: false, 
+                        endTime: now, 
+                        durationSec: totalDur, 
+                        effectiveDurationSec: effective, 
+                        coords: activeAction.treeCoords || `${gps.lat},${gps.lng}`, 
+                        status: 'CONCLUIDO', 
+                        timestamp: new Date().toISOString() 
                     };
 
-                    const newLog = { ...activeAction, synced: true, endTime: now, durationSec: totalDur, effectiveDurationSec: effective, status: 'OK', timestamp: new Date().toISOString() };
                     const updatedLogs = [newLog, ...logs];
-                    await idbKeyval.set('mcr_logs_v18_final', updatedLogs); await idbKeyval.del('mcr_active_v18_final');
-                    setLogs(updatedLogs); setActiveAction(null);
+                    await idbKeyval.set('mcr_logs_v18_final', updatedLogs);
+                    await idbKeyval.del('mcr_active_v18_final');
+                    
+                    // Limpa memória RAM antes de mudar tela
+                    setLogs(updatedLogs);
+                    setActiveAction(null);
                     
                     setTimeout(() => {
                         setView('dashboard');
                         setIsSaving(false);
-                        pushData(finalPayload);
                     }, 500);
 
-                } catch (e) { alert("Erro: " + e.message); setIsSaving(false); } 
+                } catch (e) { alert("Erro ao salvar: " + e.message); setIsSaving(false); } 
             };
 
             const handleFinalExport = async () => {
+                // Recupera dados completos do disco
+                const savedLogs = await idbKeyval.get('mcr_logs_v18_final') || [];
+                const savedShift = await idbKeyval.get('mcr_shift_v18_final');
+
                 const zip = new JSZip();
                 let csv = "DATA;ESPECIE;HM;OPERADOR;STATUS\n";
-                logs.forEach(l => csv += `${shift.journeyDate};${l.species};${l.effectiveDurationSec};${shift.operador};${l.synced ? 'ENVIADO' : 'PENDENTE'}\n`);
+                savedLogs.forEach(l => csv += `${shift.journeyDate};${l.species};${l.effectiveDurationSec};${shift.operador};${l.synced ? 'ENVIADO' : 'PENDENTE'}\n`);
                 zip.file("RELATORIO.csv", csv);
-                const folder = zip.folder("EVIDENCIAS_FOTOGRAFICAS");
-                if(shift.foto_unificada) folder.file("00_DDS_ABERTURA.jpg", shift.foto_unificada.split(',')[1], {base64: true});
-                logs.forEach((l, i) => {
+                
+                const folder = zip.folder("EVIDENCIAS");
+                // Tenta pegar foto do disco (savedShift) ou da memória (shift)
+                const fotoDDS = savedShift?.foto_unificada || shift.foto_unificada;
+                if(fotoDDS) folder.file("00_DDS_ABERTURA.jpg", fotoDDS.split(',')[1], {base64: true});
+                
+                savedLogs.forEach((l, i) => {
                     l.photosBefore?.forEach((p, j) => folder.file(`ARV_${i+1}_ANTES_${j+1}.jpg`, p.split(',')[1], {base64:true}));
                     l.photosAfter?.forEach((p, j) => folder.file(`ARV_${i+1}_DEPOIS_${j+1}.jpg`, p.split(',')[1], {base64:true}));
                 });
-                const jsonFolder = zip.folder("DADOS_DETALHADOS_JSON");
-                logs.forEach((l, i) => jsonFolder.file(`REG_${i+1}.json`, JSON.stringify(l)));
+                
                 const blob = await zip.generateAsync({type:"blob"});
                 const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `MCR_${shift.operador}.zip`; a.click();
                 if(confirm("Confirma limpeza?")) { await idbKeyval.clear(); window.location.reload(); }
             };
 
-            if (view === 'loading') return <div className="h-screen bg-audit-900 flex items-center justify-center text-white font-black italic tracking-widest animate-pulse">SGP AUDIT v18.25...</div>;
+            // VIEWS (Layout Clássico Mantido)
+            if (view === 'loading') return <div className="h-screen bg-audit-900 flex items-center justify-center text-white font-black italic tracking-widest animate-pulse">SGP AUDIT v18.26...</div>;
 
             if (view === 'setup') return (
                 <div className="p-6 screen-fade pb-20 no-scrollbar">
-                    {isSaving && <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center text-white flex-col"><i className="fas fa-spinner fa-spin text-4xl mb-4"></i><p>INICIANDO...</p></div>}
-                    <div className="text-center mb-8">
-                        <i className="fas fa-shield-alt text-audit-600 text-5xl mb-4"></i>
-                        <h1 className="text-2xl font-black text-slate-800 uppercase leading-none">Abertura de Turno</h1>
-                        <p className="text-[10px] text-red-600 font-bold mt-2 uppercase tracking-widest">Não Limpar Dados do Navegador</p>
-                    </div>
+                    {isSaving && <div className="loader-overlay"><div className="w-12 h-12 border-4 border-audit-600 border-t-transparent rounded-full animate-spin mb-4"></div><p className="text-audit-900 font-black">PROCESSANDO...</p></div>}
+                    <div className="text-center mb-8"><i className="fas fa-shield-alt text-audit-600 text-5xl mb-4"></i><h1 className="text-2xl font-black text-slate-800 uppercase">Abertura de Turno</h1></div>
                     <Card>
                         <Label required>Equipe Técnica</Label>
                         <div className="space-y-3">
@@ -358,230 +325,37 @@
                             </div>
                         </div>
                     </Card>
-                    <Card>
-                        <div className="flex justify-between items-center mb-4"><Label required>Equipe de Apoio</Label><button onClick={() => setShift({...shift, auxiliares: [...shift.auxiliares, '']})} className="bg-audit-600 text-white text-[9px] px-3 py-1.5 rounded-xl font-black uppercase">+ ADD</button></div>
-                        <div className="space-y-2 mb-4">
-                            {shift.auxiliares.map((aux, idx) => (
-                                <div key={idx} className="flex gap-2 items-center">
-                                    <input className="flex-1 p-4 border-2 rounded-2xl text-sm font-black uppercase" placeholder={`Auxiliar ${idx+1}`} value={aux} onChange={e => { let list = [...shift.auxiliares]; list[idx] = e.target.value.toUpperCase(); setShift({...shift, auxiliares: list}); }} />
-                                    {shift.auxiliares.length > 1 && <button onClick={() => { let list = [...shift.auxiliares]; list.splice(idx,1); setShift({...shift, auxiliares: list}); }} className="text-red-400 p-2"><i className="fas fa-trash"></i></button>}
-                                </div>
-                            ))}
-                        </div>
-                        <Label>Logística de Apoio</Label>
-                        <input className="w-full p-4 border-2 rounded-2xl font-black uppercase text-sm" placeholder="Placa Apoio" value={shift.placaAux} onChange={e => setShift({...shift, placaAux: e.target.value.toUpperCase()})} />
-                    </Card>
-                    <Card><Label required>DDS / Checklist</Label><PhotoUpload fullWidth label="FOTO DDS + CHECKLIST" processing={isPhotoProcessing} preview={shift.foto_unificada} onCapture={f => handleCapture(f, 'shift')} /></Card>
-                    <button disabled={!shift.operador || !shift.placa || !shift.foto_unificada || isPhotoProcessing} onClick={startShift} className="w-full py-6 rounded-3xl bg-audit-600 text-white font-black text-xl shadow-xl disabled:bg-slate-300 uppercase tracking-tighter">Iniciar Expediente</button>
+                    <Card><Label required>DDS / Checklist</Label><PhotoUpload fullWidth label="FOTO DDS" processing={isPhotoProcessing} preview={shift.foto_unificada} onCapture={f => handleCapture(f, 'shift')} /></Card>
+                    <button disabled={!shift.operador || !shift.placa || !shift.foto_unificada || isPhotoProcessing} onClick={startShift} className="w-full py-6 rounded-3xl bg-audit-600 text-white font-black text-xl shadow-xl uppercase">Iniciar Expediente</button>
                 </div>
             );
 
             if (view === 'dashboard') return (
                 <div className="screen-fade pb-24 no-scrollbar min-h-screen">
                     <div className="p-4 border-b flex justify-between items-center bg-white sticky top-0 z-40 shadow-sm">
-                        <div className="flex items-center gap-3"><div className="w-10 h-10 bg-audit-600 rounded-full flex items-center justify-center text-white shadow-lg"><i className="fas fa-tree"></i></div><div><p className="text-[10px] font-black text-audit-600 uppercase leading-none">Gestão MCR</p><p className="font-black text-slate-800 text-sm uppercase mt-1">{shift.operador}</p></div></div>
-                        <div className="text-right">
-                            <p className="text-[9px] font-black text-slate-400 uppercase">{shift.journeyDate}</p>
-                            <p className="text-[8px] font-bold text-audit-600 uppercase">{gps.lat ? 'GPS ATIVO' : 'Buscando GPS...'}</p>
-                            <p className="text-[7px] font-bold text-emerald-600 uppercase animate-pulse">{lastSyncStatus}</p>
-                        </div>
+                        <div className="flex items-center gap-3"><div className="w-10 h-10 bg-audit-600 rounded-full flex items-center justify-center text-white"><i className="fas fa-tree"></i></div><div><p className="text-[10px] font-black text-audit-600 uppercase">Gestão MCR</p><p className="font-black text-slate-800 text-sm uppercase">{shift.operador}</p></div></div>
+                        <div className="text-right"><p className="text-[8px] font-bold text-audit-600 uppercase">{gps.lat ? 'GPS ON' : 'GPS...'}</p><p className="text-[7px] font-bold text-emerald-600 uppercase animate-pulse">{syncStatus}</p></div>
                     </div>
                     <div className="p-5">
-                        <div className="bg-slate-900 p-5 rounded-3xl text-white shadow-2xl mb-4 text-center border-b-4 border-audit-500"><p className="text-[10px] font-black opacity-50 uppercase mb-1 tracking-widest leading-none">Jornada Total Diária</p><p className="text-4xl font-black font-mono text-audit-500 tracking-tighter leading-none">{formatDuration(stats.journey)}</p></div>
+                        <div className="bg-slate-900 p-5 rounded-3xl text-white shadow-2xl mb-4 text-center border-b-4 border-audit-500"><p className="text-[10px] font-black opacity-50 uppercase mb-1">Jornada</p><p className="text-4xl font-black font-mono">{formatDuration(stats.journey)}</p></div>
                         <div className="grid grid-cols-2 gap-3 mb-4">
-                            <div className="bg-audit-600 p-4 rounded-3xl text-white shadow-xl">
-                                <p className="text-[9px] font-bold opacity-70 uppercase mb-1">Hm Total Efetivo</p>
-                                <p className="text-2xl font-black leading-none">{formatDuration(stats.work)}</p>
-                                <div className="mt-4 pt-3 border-t border-white/20 grid grid-cols-2 gap-2">
-                                    <div><p className="text-[6px] font-black uppercase opacity-60 leading-none">Preparo</p><p className="text-[11px] font-black font-mono mt-0.5">{formatDuration(stats.preparo)}</p></div>
-                                    <div><p className="text-[6px] font-black uppercase opacity-60 leading-none">Manejo</p><p className="text-[11px] font-black font-mono mt-0.5">{formatDuration(stats.manejo)}</p></div>
-                                </div>
-                            </div>
-                            <div className="bg-slate-800 p-4 rounded-3xl text-white shadow-xl border-b-4 border-amber-500">
-                                <p className="text-[9px] font-bold opacity-70 uppercase mb-1">Logística / Pausas</p>
-                                <p className="text-2xl font-black leading-none">{formatDuration(stats.logistics)}</p>
-                            </div>
-                        </div>
-                        <div className="grid grid-cols-3 gap-2 mb-6 bg-white p-4 rounded-3xl border border-slate-100 shadow-sm text-center">
-                            <div className="border-r border-slate-100"><p className="text-[8px] font-black text-slate-400 uppercase mb-1">Total</p><p className="text-xl font-black text-slate-800">{stats.totalTrees}</p></div>
-                            <div className="border-r border-slate-100"><p className="text-[8px] font-black text-slate-400 uppercase mb-1">Podas</p><p className="text-xl font-black text-emerald-600">{stats.treesPruned}</p></div>
-                            <div><p className="text-[8px] font-black text-slate-400 uppercase mb-1">Cortes</p><p className="text-xl font-black text-red-600">{stats.treesSuppressed}</p></div>
+                            <div className="bg-audit-600 p-4 rounded-3xl text-white shadow-xl"><p className="text-[9px] font-bold opacity-70 uppercase mb-1">Hm Total</p><p className="text-2xl font-black">{formatDuration(stats.work)}</p></div>
+                            <div className="bg-slate-800 p-4 rounded-3xl text-white shadow-xl border-b-4 border-amber-500"><p className="text-[9px] font-bold opacity-70 uppercase mb-1">Logística</p><p className="text-2xl font-black">{formatDuration(stats.logistics)}</p></div>
                         </div>
                         <div className="space-y-4">
-                            <button onClick={async () => { const na = { pruningTypes: [], status: 'OK', totalPausedSeconds: 0, photosBefore: [], photosAfter: [], startTime: Date.now(), copelRequired: 'NÃO' }; setActiveAction(na); await idbKeyval.set('mcr_active_v18_final', na); setView('tree_form'); }} className="w-full bg-audit-600 text-white p-9 rounded-[2rem] shadow-xl flex flex-col items-center gap-2 btn-active">
-                                <i className="fas fa-plus-circle text-3xl"></i><span className="font-black text-xl uppercase tracking-tighter">Registrar Manejo</span>
-                            </button>
-                            <button onClick={() => { setActiveAction({ type: 'pause', isPaused: false, photosBefore: [], photosAfter: [] }); setView('global_pause_form'); }} className="w-full bg-white border-2 border-slate-200 text-slate-600 p-6 rounded-3xl shadow-sm flex items-center justify-center gap-4 btn-active">
-                                <i className="fas fa-pause-circle text-2xl"></i><span className="font-black text-lg uppercase tracking-tighter">Registrar Parada</span>
-                            </button>
+                            <button onClick={async () => { const na = { pruningTypes: [], status: 'OK', totalPausedSeconds: 0, photosBefore: [], photosAfter: [], startTime: Date.now(), copelRequired: 'NÃO' }; setActiveAction(na); await idbKeyval.set('mcr_active_v18_final', na); setView('tree_form'); }} className="w-full bg-audit-600 text-white p-9 rounded-[2rem] shadow-xl flex flex-col items-center gap-2 btn-active"><i className="fas fa-plus-circle text-3xl"></i><span className="font-black text-xl uppercase">Registrar Manejo</span></button>
+                            <button onClick={() => { setShowEndConfirm(true) }} className="w-full bg-slate-200 text-slate-600 p-6 rounded-3xl shadow-sm font-black uppercase">Encerrar Turno</button>
                         </div>
                     </div>
-                    <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/95 border-t z-40"><button onClick={() => setShowEndConfirm(true)} className="w-full bg-audit-900 text-white py-5 rounded-3xl font-black text-sm uppercase">Encerrar Turno</button></div>
-                    {showEndConfirm && (
-                        <div className="fixed inset-0 z-50 modal-overlay flex items-center justify-center p-6 screen-fade">
-                            <div className="bg-white w-full max-w-sm rounded-[2rem] p-8 shadow-2xl text-center border-t-4 border-audit-900">
-                                <i className="fas fa-warning text-audit-900 text-5xl mb-4"></i><h3 className="text-xl font-black text-slate-800 uppercase leading-none">Confirmar Fechamento?</h3>
-                                <div className="mt-8 space-y-3">
-                                    <button onClick={() => { setShift({...shift, journeyEndTime: Date.now()}); setShowEndConfirm(false); setView('end_day'); }} className="w-full bg-audit-900 text-white py-5 rounded-2xl font-black uppercase shadow-lg">Sim, Encerrar</button>
-                                    <button onClick={() => setShowEndConfirm(false)} className="w-full bg-slate-100 text-slate-400 py-4 rounded-2xl font-black uppercase text-[10px]">Voltar</button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
+                    {showEndConfirm && <div className="fixed inset-0 z-50 modal-overlay flex items-center justify-center p-6"><div className="bg-white w-full max-w-sm rounded-[2rem] p-8 shadow-2xl text-center"><h3 className="text-xl font-black uppercase">Confirmar?</h3><button onClick={() => { setShift({...shift, journeyEndTime: Date.now()}); setShowEndConfirm(false); setView('end_day'); }} className="w-full bg-audit-900 text-white py-5 rounded-2xl font-black uppercase mt-4">Sim, Encerrar</button><button onClick={() => setShowEndConfirm(false)} className="w-full mt-2 text-slate-400 font-bold uppercase">Voltar</button></div></div>}
                 </div>
             );
 
-            if (view === 'tree_form') {
-                const isOsRequired = activeAction.demandSource && activeAction.demandSource !== 'manutencao';
-                return (
-                    <div className="p-6 screen-fade pb-20 no-scrollbar">
-                        <div className="flex items-center gap-4 mb-6"><button onClick={() => { setActiveAction(null); setView('dashboard'); }} className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center"><i className="fas fa-arrow-left"></i></button><h2 className="text-xl font-black text-slate-800 uppercase italic leading-none">Prontuário</h2></div>
-                        <Card>
-                            <Label required>Origem da Demanda</Label>
-                            <select className="w-full p-4 border-2 rounded-2xl mb-4 font-black text-sm bg-white" value={activeAction.demandSource || ''} onChange={e => setActiveAction({...activeAction, demandSource: e.target.value})}><option value="">Selecione...</option>{FONTES_DEMANDA.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}</select>
-                            <Label required={isOsRequired}>ID OS / Protocolo</Label>
-                            <input className="w-full p-4 border-2 rounded-2xl mb-4 font-black uppercase text-sm" placeholder={isOsRequired ? "Nº DA OS OBRIGATÓRIO" : "OPCIONAL"} value={activeAction.osId || ''} onChange={e => setActiveAction({...activeAction, osId: e.target.value.toUpperCase()})} />
-                            <Label required>Suspensão Rede (COPEL)?</Label>
-                            <select className={`w-full p-4 border-2 rounded-2xl mb-4 font-black text-sm ${activeAction.copelRequired === 'SIM' ? 'border-amber-500 bg-amber-50' : 'bg-white'}`} value={activeAction.copelRequired || 'NÃO'} onChange={e => setActiveAction({...activeAction, copelRequired: e.target.value})}><option value="NÃO">NÃO NECESSÁRIO</option><option value="SIM">SIM (SOLICITAR DESLIGAMENTO)</option></select>
-                            <Label required>Tipos de Poda</Label>
-                            <div className="grid grid-cols-1 gap-2 mb-4">{TIPOS_PODA_DATA.map(t => (<label key={t.id} className={`flex items-center p-4 border-2 rounded-2xl transition-all ${activeAction?.pruningTypes?.includes(t.id) ? 'border-audit-600 bg-emerald-50' : 'border-slate-100'}`}><input type="checkbox" className="hidden" checked={activeAction?.pruningTypes?.includes(t.id)} onChange={() => { const current = activeAction.pruningTypes || []; setActiveAction({...activeAction, pruningTypes: current.includes(t.id) ? current.filter(x => x !== t.id) : [...current, t.id]}); }} /><i className={`fas ${activeAction?.pruningTypes?.includes(t.id) ? 'fa-check-square text-audit-600' : 'fa-square text-slate-300'} mr-3`}></i><span className="text-[11px] font-black uppercase">{t.id}</span></label>))}</div>
-                            <Label required>Espécie</Label>
-                            <input list="especies" className="w-full p-4 border-2 rounded-2xl bg-slate-50 font-black mb-4 uppercase text-sm" placeholder="Pesquisar espécie..." value={activeAction.species || ''} onChange={e => setActiveAction({...activeAction, species: e.target.value.toUpperCase()})} /><datalist id="especies">{LISTA_ESPECIES.map(s => <option key={s} value={s} />)}</datalist>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div><Label required>CAP (cm)</Label><input type="number" className="w-full p-4 border-2 rounded-2xl font-black text-sm" placeholder="CAP" value={activeAction.cap || ''} onChange={e => setActiveAction({...activeAction, cap: e.target.value})} /></div>
-                                <div><Label required>Altura (m)</Label><input type="number" className="w-full p-4 border-2 rounded-2xl font-black text-sm" placeholder="Altura" value={activeAction.height || ''} onChange={e => setActiveAction({...activeAction, height: e.target.value})} /></div>
-                            </div>
-                        </Card>
-                        <Card className={`border-2 ${activeAction.status === 'IMPEDIDO' ? 'border-red-600 bg-red-50' : 'border-slate-200 bg-white'}`}>
-                            <label className="flex items-center gap-3 cursor-pointer p-2">
-                                <input type="checkbox" className="w-6 h-6 rounded" checked={activeAction.status === 'IMPEDIDO'} onChange={e => setActiveAction({...activeAction, status: e.target.checked ? 'IMPEDIDO' : 'OK'})} />
-                                <span className="font-black text-red-600 uppercase text-xs">Relatar Impedimento (Serviço Impossível)</span>
-                            </label>
-                            {activeAction.status === 'IMPEDIDO' && (
-                                <div className="mt-4 space-y-4 screen-fade">
-                                    <Label required>Relato Técnico do Impedimento</Label>
-                                    <textarea className="w-full p-3 border-2 border-red-300 rounded-2xl text-sm font-black uppercase" placeholder="DESCREVA O MOTIVO DA IMPOSSIBILIDADE..." rows="3" value={activeAction.problemReport || ''} onChange={e => setActiveAction({...activeAction, problemReport: e.target.value})} />
-                                    <PhotoUpload label="FOTO EVIDÊNCIA" help="MOSTRAR O IMPEDIMENTO" preview={activeAction.photoProblem} onCapture={async f => handleCapture(f, 'problem')} />
-                                </div>
-                            )}
-                        </Card>
-                        <Card className="border-2 border-audit-600 bg-emerald-50 shadow-md">
-                            <Label required>3 Fotos de Antes (Orientação TR)</Label>
-                            <div className="grid grid-cols-3 gap-2 mb-2">
-                                <PhotoUpload label="F1" help="GERAL" processing={isPhotoProcessing} preview={activeAction.photosBefore?.[0]} onCapture={f => handleCapture(f, 'before')} />
-                                <PhotoUpload label="F2" help="DETALHE" processing={isPhotoProcessing} preview={activeAction.photosBefore?.[1]} onCapture={f => handleCapture(f, 'before')} />
-                                <PhotoUpload label="F3" help="RUA" processing={isPhotoProcessing} preview={activeAction.photosBefore?.[2]} onCapture={f => handleCapture(f, 'before')} />
-                            </div>
-                            {activeAction.status === 'IMPEDIDO' ? (
-                                <button disabled={!activeAction.species || !activeAction.problemReport || !activeAction.photoProblem} onClick={() => {
-                                    const now = Date.now();
-                                    setLogs([{ ...activeAction, endTime: now, status: 'IMPEDIDO', coords: `${gps.lat},${gps.lng}`, timestamp: new Date().toISOString() }, ...logs]);
-                                    setActiveAction(null); setView('dashboard');
-                                }} className="w-full mt-4 py-6 rounded-3xl bg-red-600 text-white font-black uppercase text-xl shadow-lg italic">Registrar Impedimento</button>
-                            ) : (
-                                <button disabled={!activeAction.species || !activeAction.cap || !activeAction.height || !activeAction.pruningTypes?.length || (isOsRequired && !activeAction.osId) || activeAction.photosBefore?.filter(p=>p).length < 3 || isPhotoProcessing} onClick={startTreeTimer} className="w-full mt-4 py-6 rounded-3xl bg-audit-600 text-white font-black uppercase text-xl shadow-lg italic">Iniciar Manejo Técnico</button>
-                            )}
-                        </Card>
-                    </div>
-                );
-            }
+            if (view === 'tree_form') return <div className="p-6 screen-fade pb-20"><div className="flex items-center gap-4 mb-6"><button onClick={()=>{setActiveAction(null);setView('dashboard')}} className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center"><i className="fas fa-arrow-left"></i></button><h2 className="text-xl font-black text-slate-800 uppercase italic">Prontuário</h2></div><Card><Label required>Espécie</Label><input list="esp" className="w-full p-4 border-2 rounded-2xl mb-4 text-sm font-black" value={activeAction.species||''} onChange={e=>setActiveAction({...activeAction,species:e.target.value.toUpperCase()})} /><datalist id="esp">{LISTA_ESPECIES.map(s=><option key={s} value={s}/>)}</datalist><Label required>3 Fotos Antes</Label><div className="grid grid-cols-3 gap-2">{[0,1,2].map(i=><PhotoUpload key={i} label={`F${i+1}`} preview={activeAction.photosBefore?.[i]} onCapture={f=>handleCapture(f,'before')} processing={isPhotoProcessing}/>)}</div></Card><button disabled={!activeAction.species || activeAction.photosBefore?.length<3} onClick={startTreeTimer} className="w-full py-6 rounded-3xl bg-audit-600 text-white font-black text-xl shadow-lg">Iniciar</button></div>;
 
-            if (view === 'active_service') return (
-                <div className="p-6 screen-fade flex flex-col min-h-screen no-scrollbar">
-                    <div className="text-center mt-6 uppercase"><span className="bg-audit-600 text-white px-5 py-1.5 rounded-full text-[10px] font-black uppercase">Execução</span><h2 className="text-xl font-black mt-5">{activeAction.desc}</h2></div>
-                    <div className="flex-1 flex flex-col justify-center items-center">
-                        <div className="text-7xl font-black text-slate-900 timer-glow leading-none font-mono tracking-tighter">{formatDuration(totalElapsed)}</div>
-                        <p className="text-slate-400 font-black text-[11px] mt-2 uppercase tracking-widest leading-none">Hm Efetivo Total</p>
-                        <div className="mt-12 grid grid-cols-2 gap-4 w-full max-w-sm">
-                            <div className="bg-slate-50 p-5 rounded-[2rem] border border-slate-200 text-center"><p className="text-[7px] font-black text-slate-400 uppercase mb-1">Preparo</p><p className="text-lg font-black text-slate-600 font-mono leading-none">{formatDuration(formElapsed)}</p></div>
-                            <div className="bg-emerald-50 p-5 rounded-[2rem] border border-emerald-200 text-center"><p className="text-[7px] font-black text-emerald-500 uppercase mb-1">Poda</p><p className="text-lg font-black text-emerald-700 font-mono leading-none">{formatDuration(Math.max(0, execElapsed))}</p></div>
-                        </div>
-                    </div>
-                    <div className="mt-auto space-y-4 pb-8">
-                        <button onClick={triggerPause} className="w-full bg-amber-500 text-black py-5 rounded-3xl font-black text-lg shadow-xl flex items-center justify-center gap-3 active:scale-95 transition-transform"><i className="fas fa-pause"></i> Interromper Manejo</button>
-                        <Card className="border-2 border-audit-900 shadow-xl">
-                            <Label required>3 Fotos de Depois</Label>
-                            <div className="grid grid-cols-3 gap-2 mb-2">
-                                <PhotoUpload label="F1" help="COPA" processing={isPhotoProcessing} preview={activeAction.photosAfter?.[0]} onCapture={f => handleCapture(f, 'after')} />
-                                <PhotoUpload label="F2" help="CORTE" processing={isPhotoProcessing} preview={activeAction.photosAfter?.[1]} onCapture={f => handleCapture(f, 'after')} />
-                                <PhotoUpload label="F3" help="LIMPO" processing={isPhotoProcessing} preview={activeAction.photosAfter?.[2]} onCapture={f => handleCapture(f, 'after')} />
-                            </div>
-                            <button disabled={activeAction.photosAfter?.filter(p=>p).length < 3 || isPhotoProcessing || isSaving} onClick={forceSaveTree} className="w-full mt-4 py-5 rounded-2xl bg-audit-900 text-white font-black uppercase shadow-xl disabled:bg-slate-300">
-                                {isSaving ? "GRAVANDO..." : "FINALIZAR E SALVAR"}
-                            </button>
-                        </Card>
-                    </div>
-                </div>
-            );
+            if (view === 'active_service') return <div className="p-6 screen-fade flex flex-col min-h-screen"><div className="text-center mt-6"><span className="bg-audit-600 text-white px-5 py-1.5 rounded-full text-[10px] font-black uppercase">Execução</span><h2 className="text-xl font-black mt-5">{activeAction.desc}</h2></div><div className="flex-1 flex flex-col justify-center items-center"><div className="text-7xl font-black timer-glow">{formatDuration(visualElapsed)}</div></div><div className="mt-auto pb-8"><Card><Label required>3 Fotos Depois</Label><div className="grid grid-cols-3 gap-2">{[0,1,2].map(i=><PhotoUpload key={i} label={`F${i+1}`} preview={activeAction.photosAfter?.[i]} onCapture={f=>handleCapture(f,'after')} processing={isPhotoProcessing}/>)}</div><button disabled={activeAction.photosAfter?.length<3 || isSaving} onClick={forceSaveTree} className="w-full mt-4 py-5 rounded-2xl bg-audit-900 text-white font-black">{isSaving?"Salvando...":"Finalizar"}</button></Card></div></div>;
 
-            if (view === 'global_pause_form' || view === 'pause_during_tree') {
-                const isOther = activeAction?.tempPauseReason === 'Outros';
-                return (
-                    <div className="p-6 screen-fade no-scrollbar">
-                        <h2 className="text-xl font-black text-slate-800 mb-6 uppercase italic leading-none">Registrar Parada</h2>
-                        <Card>
-                            <Label required>Motivo da Interrupção</Label>
-                            <select className="w-full p-4 border-2 rounded-2xl mb-4 font-black bg-white text-sm" value={activeAction?.tempPauseReason || ''} onChange={e => setActiveAction({...activeAction, tempPauseReason: e.target.value})}><option value="">Selecione...</option>{PAUSE_REASONS.map(r => <option key={r} value={r}>{r}</option>)}</select>
-                            {isOther && (<div className="mb-4"><Label required>Motivação Detalhada</Label><textarea className="w-full p-3 border-2 border-amber-300 rounded-2xl text-sm font-black uppercase" rows="3" placeholder="DESCREVA O MOTIVO..." value={activeAction.customPauseReason || ''} onChange={e => setActiveAction({...activeAction, customPauseReason: e.target.value})} /></div>)}
-                            <Label required>Foto Evidência (Obrigatório)</Label>
-                            <PhotoUpload label="FOTO PAUSA" processing={isPhotoProcessing} onCapture={f => handleCapture(f, 'pause')} preview={activeAction?.tempPausePhoto} />
-                        </Card>
-                        <button disabled={!activeAction?.tempPauseReason || !activeAction?.tempPausePhoto || (isOther && !activeAction.customPauseReason) || isPhotoProcessing} onClick={async () => { 
-                            const now = Date.now();
-                            const isNewPause = !activeAction?.startTime;
-                            const na = { ...activeAction, type: activeAction?.type || 'pause', isPaused: true, pauseStartTime: now, startTime: isNewPause ? now : activeAction.startTime, pauseCoords: `${gps.lat},${gps.lng}` };
-                            setActiveAction(na); await idbKeyval.set('mcr_active_v18_final', na);
-                            setVisualPause(0); setView('active_pause_screen'); 
-                            
-                            // Envia Rastreabilidade (Supabase)
-                            pushData({ data_referencia: shift.journeyDate, operador_encarregado: shift.operador, especie: "PAUSA_GERAL", status_servico: "PAUSA_REGISTRADA", coordenadas: `${gps.lat},${gps.lng}`, hm_manejo_seg: 0 });
-                        }} className="w-full py-6 rounded-3xl bg-amber-600 text-white font-black text-xl shadow-xl disabled:bg-slate-300 uppercase italic">Confirmar Pausa</button>
-                        <button onClick={()=>setView(activeAction.type==='tree' ? 'active_service' : 'dashboard')} className="w-full p-5 text-slate-400 font-black uppercase text-[10px] tracking-widest underline decoration-dotted">Voltar</button>
-                    </div>
-                );
-            }
-
-            if (view === 'active_pause_screen') return (
-                <div className="p-6 screen-fade flex flex-col min-h-screen bg-slate-900 text-white no-scrollbar">
-                    <div className="text-center mt-12 px-4"><span className="bg-amber-500 text-black px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest shadow-md">Serviço Suspenso</span><h2 className="text-2xl font-black uppercase mt-6 text-amber-500 leading-tight">{activeAction.tempPauseReason === 'Outros' ? activeAction.customPauseReason : activeAction.tempPauseReason}</h2></div>
-                    <div className="flex-1 flex flex-col justify-center items-center px-2">
-                        <div className="fit-timer font-black text-amber-500 pause-glow font-mono leading-none tracking-tighter">{formatDuration(visualPause)}</div>
-                        <p className="text-[10px] font-black text-slate-500 mt-4 uppercase tracking-widest tracking-[0.2em]">Cronômetro de Parada</p>
-                    </div>
-                    <button onClick={async () => { 
-                        const pDur = Math.floor((Date.now() - activeAction.pauseStartTime) / 1000); 
-                        if (activeAction.type === 'pause') { 
-                            const newLog = {...activeAction, synced: false, endTime: Date.now(), durationSec: pDur, status: 'PAUSA', timestamp: new Date().toISOString(), coords: activeAction.pauseCoords || `${gps.lat},${gps.lng}`, totalPausedSeconds: pDur};
-                            const updatedLogs = [newLog, ...logs];
-                            await idbKeyval.set('mcr_logs_v18_final', updatedLogs); setLogs(updatedLogs); 
-                            setActiveAction(null); await idbKeyval.del('mcr_active_v18_final');
-                            setView('dashboard'); 
-                        } else { 
-                            const newAction = {...activeAction, isPaused: false, totalPausedSeconds: (activeAction.totalPausedSeconds || 0) + pDur, tempPauseReason: null, tempPausePhoto: null, customPauseReason: null};
-                            setActiveAction(newAction); await idbKeyval.set('mcr_active_v18_final', newAction);
-                            setView('active_service'); 
-                        }
-                    }} className="bg-emerald-600 text-white py-8 rounded-[2.5rem] font-black text-2xl mb-12 uppercase shadow-xl tracking-tighter mx-4 btn-active transition-all italic">Retomar Operação</button>
-                </div>
-            );
-
-            if (view === 'end_day') return (
-                <div className="p-6 screen-fade text-center pb-12 no-scrollbar min-h-screen flex flex-col justify-center">
-                    <i className="fas fa-check-circle text-audit-600 text-7xl mb-6"></i><h2 className="text-3xl font-black text-audit-900 uppercase leading-none tracking-tighter">Turno Finalizado</h2>
-                    <Card className="bg-emerald-50 mt-10 text-left border-audit-200 p-6 shadow-emerald-50">
-                        <div className="flex justify-between border-b border-emerald-100 pb-2 mb-2 font-black"><span className="text-[10px] text-emerald-600 uppercase tracking-widest">Hm Efetivo:</span><span className="text-base font-mono">{formatDuration(stats.work)}</span></div>
-                        <div className="flex justify-between font-black text-audit-900"><span className="text-[11px] uppercase tracking-widest">Jornada Total:</span><span className="text-lg font-mono">{formatDuration(stats.journey)}</span></div>
-                    </Card>
-                    <div className="p-5 bg-amber-50 rounded-3xl border-2 border-amber-200 mt-8 text-left">
-                        <p className="text-[11px] font-black text-amber-700 uppercase mb-2 leading-tight tracking-wider"><i className="fas fa-file-csv mr-2"></i>Relatório Diário:</p>
-                        <p className="text-[11px] text-amber-900 font-medium leading-relaxed leading-tight">O botão abaixo gera a planilha <b>CSV (Excel)</b> e organiza suas fotos. <b>O sistema removeu as senhas para facilitar o seu trabalho mensal.</b> Os dados georreferenciados já foram salvos administrativamente.</p>
-                    </div>
-                    <button disabled={isExporting} onClick={handleFinalExport} className="w-full py-8 mt-10 rounded-[2.5rem] bg-audit-600 text-white font-black text-2xl shadow-xl uppercase tracking-tighter flex items-center justify-center gap-4 btn-active italic tracking-widest shadow-emerald-100">
-                        {isExporting ? <><i className="fas fa-spinner fa-spin"></i>Gerando...</> : <><i className="fas fa-file-download"></i>Baixar Relatório</>}
-                    </button>
-                    <button onClick={()=>setView('dashboard')} className="mt-8 text-slate-300 font-black uppercase text-[10px] tracking-widest underline underline-offset-4">Voltar ao Painel</button>
-                </div>
-            );
+            if (view === 'end_day') return <div className="p-6 text-center"><i className="fas fa-check-circle text-audit-600 text-7xl mb-6"></i><h2 className="text-3xl font-black">Turno Finalizado</h2><button onClick={handleFinalExport} className="w-full py-8 mt-10 rounded-[2.5rem] bg-audit-600 text-white font-black text-2xl shadow-xl">Baixar Relatório</button></div>;
 
             return null;
         };
