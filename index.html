@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SGP AUDIT v19.2 | MCR Controle Crítico</title>
+    <title>SGP AUDIT v19.3 | MCR Controle Crítico</title>
     
     <!-- Bibliotecas Core -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -16,7 +16,6 @@
     <script src="https://cdn.jsdelivr.net/npm/idb-keyval@6/dist/umd.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/browser-image-compression@2.0.2/dist/browser-image-compression.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/exif-js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
     <script>
@@ -46,11 +45,6 @@
 
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
-
-        // --- CONFIGURAÇÃO SUPABASE ---
-        const SUPABASE_URL = "https://kqzxrywfrtbyxwgvggsd.supabase.co";
-        const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtxenhyeXdmcnRieXh3Z3ZnZ3NkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg2NjE4NjksImV4cCI6MjA4NDIzNzg2OX0.2XCcj9dFQqMHooUmF1D1Yuy9CvKPvabMO0Ai3A_Mto8";
-        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
         const TARGET_EMAIL = "thyego.engflorestalmcr@gmail.com";
 
@@ -189,7 +183,7 @@
                 return () => navigator.geolocation.clearWatch(watchId);
             }, []);
 
-            // --- METADADOS EXIF ---
+            // FUNÇÃO DE COLETA DE METADADOS EXIF
             const getMetadata = (file) => {
                 return new Promise((resolve) => {
                     EXIF.getData(file, function() {
@@ -212,32 +206,18 @@
 
             const processPhoto = async (file) => {
                 if (!file) return null;
+                // Coleta obrigatória de metadados antes da compressão
                 const metadata = await getMetadata(file);
                 const options = { maxSizeMB: 0.1, maxWidthOrHeight: 1280, useWebWorker: true };
                 try {
                     const compressed = await imageCompression(file, options);
-                    const base64 = await new Promise(r => {
-                        const reader = new FileReader();
-                        reader.readAsDataURL(compressed);
-                        reader.onloadend = () => r(reader.result);
+                    const base64 = await new Promise(r => { 
+                        const reader = new FileReader(); 
+                        reader.readAsDataURL(compressed); 
+                        reader.onloadend = () => r(reader.result); 
                     });
                     return { base64, metadata, systemGps: `${gps.lat},${gps.lng}`, timestamp: new Date().toISOString() };
                 } catch (e) { return null; }
-            };
-
-            // --- SINCRONIZAÇÃO SUPABASE ---
-            const syncToCloud = async (logItem) => {
-                try {
-                    const { error } = await supabase
-                        .from('mcr_audit_logs')
-                        .insert([{
-                            ...logItem,
-                            photosBefore: null, // Não enviamos as fotos pesadas por aqui
-                            photosAfter: null,
-                            shift_context: { rt: shift.rt, operador: shift.operador, placa: shift.placa }
-                        }]);
-                    if (error) console.error("Supabase Error:", error.message);
-                } catch (e) { console.error("Sync Error:", e); }
             };
 
             const stats = useMemo(() => {
@@ -248,9 +228,11 @@
                     const pausedInTree = log.totalPausedSeconds || 0;
                     return acc + (bruteExec - pausedInTree);
                 }, 0);
+
                 const hmTotalEfetivo = totalFormSec + totalManejoPuroSec;
                 const journeySec = journeyElapsed;
                 const logisticSec = Math.max(0, journeySec - hmTotalEfetivo);
+                
                 return { 
                     work: hmTotalEfetivo, preparo: totalFormSec, manejo: totalManejoPuroSec,
                     logistics: logisticSec, journey: journeySec, totalTrees: logs.filter(l => l.type === 'tree').length,
@@ -265,7 +247,7 @@
                 window.location.reload();
             };
 
-            // --- TELAS ---
+            // VIEWS
             if (view === 'setup' || view === 'edit_team') {
                 return (
                     <div className="p-6 screen-fade pb-20 no-scrollbar">
@@ -292,7 +274,7 @@
                                 ))}
                             </div>
                             <Label>Logística de Apoio</Label>
-                            <input className="w-full p-4 border-2 rounded-2xl font-black uppercase text-sm" placeholder="Placa Apoio" value={shift?.placaAux || ''} onChange={e => setShift({...shift, placaAux: e.target.value.toUpperCase()})} />
+                            <input className="w-full p-4 border-2 rounded-2xl font-black uppercase text-sm" placeholder="Placa Veículo de Apoio" value={shift?.placaAux || ''} onChange={e => setShift({...shift, placaAux: e.target.value.toUpperCase()})} />
                         </Card>
                         <Card><Label required>DDS / Checklist</Label><PhotoUpload fullWidth label="DDS + CHECKLIST" preview={shift?.foto_unificada?.base64} onCapture={async f => setShift({...shift, foto_unificada: await processPhoto(f)})} /></Card>
                         <button disabled={!shift?.rt || !shift?.operador || !shift?.placa || !shift?.foto_unificada} onClick={() => { setShift({...shift, active: true, journeyStartTime: shift.journeyStartTime || Date.now(), journeyDate: shift.journeyDate || new Date().toLocaleDateString()}); setView('dashboard'); }} className="w-full py-6 rounded-3xl bg-audit-600 text-white font-black text-xl shadow-xl disabled:bg-slate-300 uppercase tracking-tighter">Iniciar Expediente</button>
@@ -319,8 +301,8 @@
                             </div>
                         </div>
                         <div className="grid grid-cols-3 gap-2 mb-6 bg-white p-4 rounded-3xl border border-slate-100 shadow-sm text-center">
-                            <div><p className="text-[8px] font-black text-slate-400 uppercase mb-1">Total</p><p className="text-xl font-black text-slate-800">{stats.totalTrees}</p></div>
-                            <div><p className="text-[8px] font-black text-slate-400 uppercase mb-1">Podas</p><p className="text-xl font-black text-emerald-600">{stats.treesPruned}</p></div>
+                            <div className="border-r border-slate-100"><p className="text-[8px] font-black text-slate-400 uppercase mb-1">Total</p><p className="text-xl font-black text-slate-800">{stats.totalTrees}</p></div>
+                            <div className="border-r border-slate-100"><p className="text-[8px] font-black text-slate-400 uppercase mb-1">Podas</p><p className="text-xl font-black text-emerald-600">{stats.treesPruned}</p></div>
                             <div><p className="text-[8px] font-black text-slate-400 uppercase mb-1">Cortes</p><p className="text-xl font-black text-red-600">{stats.treesSuppressed}</p></div>
                         </div>
                         <div className="space-y-4">
@@ -334,7 +316,7 @@
                             <div className="bg-white w-full max-w-sm rounded-[2rem] p-8 shadow-2xl text-center">
                                 <i className="fas fa-warning text-audit-900 text-5xl mb-4"></i><h3 className="text-xl font-black text-slate-800 uppercase leading-none">Confirmar Fechamento?</h3>
                                 <div className="mt-8 space-y-3">
-                                    <button onClick={() => { setShift({...shift, journeyEndTime: Date.now()}); setShowEndConfirm(false); setView('end_day'); }} className="w-full bg-audit-900 text-white py-5 rounded-2xl font-black uppercase shadow-lg">Sim, Encerrar</button>
+                                    <button onClick={() => { setShift({...shift, journeyEndTime: Date.now()}); setShowEndConfirm(false); setView('end_day'); }} className="w-full bg-audit-900 text-white py-5 rounded-2xl font-black uppercase">Sim, Encerrar</button>
                                     <button onClick={() => setShowEndConfirm(false)} className="w-full bg-slate-100 text-slate-400 py-4 rounded-2xl font-black uppercase text-[10px]">Voltar</button>
                                 </div>
                             </div>
@@ -379,10 +361,10 @@
                                 {[0,1,2].map(i => <PhotoUpload key={i} label={`F${i+1}`} preview={activeAction.photosBefore?.[i]?.base64} onCapture={async f => { let list = [...activeAction.photosBefore]; list[i] = await processPhoto(f); setActiveAction({...activeAction, photosBefore: list}); }} />)}
                             </div>
                             {activeAction.status === 'IMPEDIDO' ? (
-                                <button disabled={!activeAction.species || !activeAction.problemReport || !activeAction.photoProblem} onClick={async () => {
+                                <button disabled={!activeAction.species || !activeAction.problemReport || !activeAction.photoProblem} onClick={() => {
                                     const now = Date.now();
-                                    const log = { ...activeAction, endTime: now, status: 'IMPEDIDO', coords: `${gps.lat},${gps.lng}`, timestamp: new Date().toISOString() };
-                                    setLogs([log, ...logs]); await syncToCloud(log); setActiveAction(null); setView('dashboard');
+                                    setLogs([{ ...activeAction, endTime: now, status: 'IMPEDIDO', coords: `${gps.lat},${gps.lng}`, timestamp: new Date().toISOString() }, ...logs]);
+                                    setActiveAction(null); setView('dashboard');
                                 }} className="w-full mt-4 py-6 rounded-3xl bg-red-600 text-white font-black uppercase text-xl">Registrar Impedimento</button>
                             ) : (
                                 <button disabled={!activeAction.species || !activeAction.cap || !activeAction.height || !activeAction.pruningTypes?.length || (isOsRequired && !activeAction.osId) || activeAction.photosBefore?.filter(p=>p).length < 3} onClick={() => { 
@@ -412,11 +394,11 @@
                                 <div className="grid grid-cols-3 gap-2 mb-2">
                                     {[0,1,2].map(i => <PhotoUpload key={i} label={`F${i+1}`} preview={activeAction.photosAfter?.[i]?.base64} onCapture={async f => { let list = [...activeAction.photosAfter]; list[i] = await processPhoto(f); setActiveAction({...activeAction, photosAfter: list}); }} />)}
                                 </div>
-                                <button disabled={activeAction.photosAfter?.filter(p=>p).length < 3} onClick={async () => { 
+                                <button disabled={activeAction.photosAfter?.filter(p=>p).length < 3} onClick={() => { 
                                     const now = Date.now();
                                     const totalDur = Math.floor((now - activeAction.startTime) / 1000);
-                                    const log = { ...activeAction, endTime: now, durationSec: totalDur, effectiveDurationSec: totalDur - (activeAction.totalPausedSeconds || 0), coords: activeAction.treeCoords || `${gps.lat},${gps.lng}`, status: 'OK', timestamp: new Date().toISOString() };
-                                    setLogs([log, ...logs]); await syncToCloud(log); setActiveAction(null); setView('dashboard'); 
+                                    setLogs([{ ...activeAction, endTime: now, durationSec: totalDur, effectiveDurationSec: totalDur - (activeAction.totalPausedSeconds || 0), coords: activeAction.treeCoords || `${gps.lat},${gps.lng}`, status: 'OK', timestamp: new Date().toISOString() }, ...logs]); 
+                                    setActiveAction(null); setView('dashboard'); 
                                 }} className="w-full mt-4 py-5 rounded-2xl bg-audit-900 text-white font-black uppercase shadow-xl">Finalizar e Salvar</button>
                             </Card>
                         </div>
@@ -444,19 +426,14 @@
 
             if (view === 'active_pause_screen') return (
                 <div className="p-6 screen-fade flex flex-col min-h-screen bg-slate-900 text-white no-scrollbar">
-                    <div className="text-center mt-12"><span className="bg-amber-500 text-black px-4 py-1.5 rounded-full text-[10px] font-black uppercase">Serviço Suspenso</span><h2 className="text-2xl font-black uppercase mt-6 text-amber-500 leading-tight">{activeAction.tempPauseReason}</h2></div>
+                    <div className="text-center mt-12"><span className="bg-amber-500 text-black px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest">Serviço Suspenso</span><h2 className="text-2xl font-black uppercase mt-6 text-amber-500 leading-tight">{activeAction.tempPauseReason}</h2></div>
                     <div className="flex-1 flex flex-col justify-center items-center">
                         <div className="fit-timer font-black text-amber-500 pause-glow leading-none font-mono tracking-tighter">{formatDuration(pauseElapsed)}</div>
                     </div>
-                    <button onClick={async () => { 
-                        const pDur = Math.floor((Date.now() - activeAction.pauseStartTime) / 1000); 
-                        if (activeAction.type === 'pause') { 
-                            const log = { ...activeAction, endTime: Date.now(), durationSec: pDur, status: 'PAUSA', timestamp: new Date().toISOString(), coords: activeAction.pauseCoords || `${gps.lat},${gps.lng}` };
-                            setLogs([log, ...logs]); await syncToCloud(log); setActiveAction(null); setView('dashboard'); 
-                        } else { 
-                            setActiveAction({...activeAction, isPaused: false, totalPausedSeconds: (activeAction.totalPausedSeconds || 0) + pDur, tempPauseReason: null, tempPausePhoto: null}); setView('active_service'); 
-                        }
-                    }} className="bg-emerald-600 text-white py-7 rounded-[2rem] font-black text-2xl mb-12 uppercase mx-4">Retomar Operação</button>
+                    <button onClick={() => { const pDur = Math.floor((Date.now() - activeAction.pauseStartTime) / 1000); 
+                        if (activeAction.type === 'pause') { setLogs([{...activeAction, endTime: Date.now(), durationSec: pDur, status: 'PAUSA', timestamp: new Date().toISOString(), coords: activeAction.pauseCoords || `${gps.lat},${gps.lng}`}, ...logs]); setActiveAction(null); setView('dashboard'); } 
+                        else { setActiveAction({...activeAction, isPaused: false, totalPausedSeconds: (activeAction.totalPausedSeconds || 0) + pDur, tempPauseReason: null, tempPausePhoto: null}); setView('active_service'); }
+                    }} className="bg-emerald-600 text-white py-7 rounded-[2rem] font-black text-2xl mb-12 uppercase mx-4 shadow-xl">Retomar Operação</button>
                 </div>
             );
 
@@ -468,7 +445,7 @@
                         <div className="flex justify-between font-black text-audit-900"><span className="text-[11px] uppercase">Jornada Total:</span><span className="text-lg font-mono">{formatDuration(stats.journey)}</span></div>
                     </Card>
                     <div className="grid grid-cols-3 gap-2 mb-6">
-                        <div className="bg-white p-3 rounded-2xl border"><p className="text-[7px] font-black uppercase">Total</p><p className="text-lg font-black">{stats.totalTrees}</p></div>
+                        <div className="bg-white p-3 rounded-2xl border"><p className="text-[7px] font-black uppercase text-slate-400">Total</p><p className="text-lg font-black">{stats.totalTrees}</p></div>
                         <div className="bg-white p-3 rounded-2xl border"><p className="text-[7px] font-black uppercase text-emerald-600">Podas</p><p className="text-lg font-black">{stats.treesPruned}</p></div>
                         <div className="bg-white p-3 rounded-2xl border"><p className="text-[7px] font-black uppercase text-red-600">Cortes</p><p className="text-lg font-black">{stats.treesSuppressed}</p></div>
                     </div>
@@ -485,7 +462,7 @@
                                     l.photosBefore?.forEach((p, i) => { if(p) imgs.file(`ARV_${idx}_ANTES_${i+1}.jpg`, p.base64.split(',')[1], {base64: true}) });
                                     l.photosAfter?.forEach((p, i) => { if(p) imgs.file(`ARV_${idx}_DEPOIS_${i+1}.jpg`, p.base64.split(',')[1], {base64: true}) });
                                 });
-                                // DOWNLOAD DO ZIP DESENCRIPTADO (SEM SENHA)
+                                // DOWNLOAD DO ZIP SEM CRIPTOGRAFIA
                                 const blob = await zip.generateAsync({type:"blob"});
                                 const fileName = `RAD_MCR_${new Date().toISOString().slice(0,10)}.zip`;
                                 const a = document.createElement("a"); 
@@ -501,7 +478,7 @@
                 </div>
             );
 
-            if (view === 'loading') return <div className="h-screen bg-audit-900 flex items-center justify-center text-white font-black italic animate-pulse tracking-widest">SGP AUDIT...</div>;
+            if (view === 'loading') return <div className="h-screen bg-audit-900 flex items-center justify-center text-white font-black italic animate-pulse">SGP AUDIT...</div>;
             return null;
         };
 
