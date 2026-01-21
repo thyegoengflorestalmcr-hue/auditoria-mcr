@@ -47,8 +47,9 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
 
-        // --- CONFIGURAÇÃO SUPABASE ---
-        const SUPABASE_URL = "https://kqzxhrywfrtbyxwgwggsd.supabase.co";
+        // --- CONFIGURAÇÃO SUPABASE CORRIGIDA ---
+        // A URL anterior tinha erros de digitação ("h" extra e "g" extra). Esta é a correta:
+        const SUPABASE_URL = "https://kqzxrywfrtbyxwgvggsd.supabase.co";
         const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtxenhyeXdmcnRieXh3Z3ZnZ3NkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg2NjE4NjksImV4cCI6MjA4NDIzNzg2OX0.2XCcj9dFQqMHooUmF1D1Yuy9CvKPvabMO0Ai3A_Mto8";
         const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -189,22 +190,22 @@
                 return () => navigator.geolocation.clearWatch(watchId);
             }, []);
 
-            // --- METADADOS EXIF ---
-            const getMetadata = (file) => {
+            // --- FUNÇÕES DE PROCESSAMENTO DE IMAGEM ---
+            const getExifData = (file) => {
                 return new Promise((resolve) => {
                     EXIF.getData(file, function() {
-                        const allTags = EXIF.getAllTags(this);
-                        const convertDMSToDD = (dms, ref) => {
+                        const meta = EXIF.getAllTags(this);
+                        const convert = (dms, ref) => {
                             if (!dms) return null;
                             let dd = dms[0] + dms[1]/60 + dms[2]/3600;
                             if (ref === "S" || ref === "W") dd = dd * -1;
                             return dd.toFixed(6);
                         };
                         resolve({
-                            dateTime: allTags.DateTimeOriginal || allTags.DateTime || null,
-                            lat: convertDMSToDD(allTags.GPSLatitude, allTags.GPSLatitudeRef),
-                            lng: convertDMSToDD(allTags.GPSLongitude, allTags.GPSLongitudeRef),
-                            device: allTags.Model || "Unknown"
+                            dateTime: meta.DateTimeOriginal || meta.DateTime || null,
+                            lat: convert(meta.GPSLatitude, meta.GPSLatitudeRef),
+                            lng: convert(meta.GPSLongitude, meta.GPSLongitudeRef),
+                            model: meta.Model || null
                         });
                     });
                 });
@@ -212,32 +213,18 @@
 
             const processPhoto = async (file) => {
                 if (!file) return null;
-                const metadata = await getMetadata(file);
-                const options = { maxSizeMB: 0.1, maxWidthOrHeight: 1280, useWebWorker: true };
+                const metadata = await getExifData(file);
+                // Configuração original que você disse que não trava
+                const options = { maxSizeMB: 0.1, maxWidthOrHeight: 1024, useWebWorker: true };
                 try {
                     const compressed = await imageCompression(file, options);
-                    const base64 = await new Promise(r => {
-                        const reader = new FileReader();
-                        reader.readAsDataURL(compressed);
-                        reader.onloadend = () => r(reader.result);
+                    const base64 = await new Promise(r => { 
+                        const reader = new FileReader(); 
+                        reader.readAsDataURL(compressed); 
+                        reader.onloadend = () => r(reader.result); 
                     });
-                    return { base64, metadata, systemGps: `${gps.lat},${gps.lng}`, timestamp: new Date().toISOString() };
+                    return { base64, metadata, captureGps: `${gps.lat},${gps.lng}`, captureTime: new Date().toISOString() };
                 } catch (e) { return null; }
-            };
-
-            // --- SINCRONIZAÇÃO SUPABASE ---
-            const syncToCloud = async (logItem) => {
-                try {
-                    const { error } = await supabase
-                        .from('mcr_audit_logs')
-                        .insert([{
-                            ...logItem,
-                            photosBefore: null, // Não enviamos as fotos pesadas por aqui
-                            photosAfter: null,
-                            shift_context: { rt: shift.rt, operador: shift.operador, placa: shift.placa }
-                        }]);
-                    if (error) console.error("Supabase Error:", error.message);
-                } catch (e) { console.error("Sync Error:", e); }
             };
 
             const stats = useMemo(() => {
@@ -248,9 +235,11 @@
                     const pausedInTree = log.totalPausedSeconds || 0;
                     return acc + (bruteExec - pausedInTree);
                 }, 0);
+
                 const hmTotalEfetivo = totalFormSec + totalManejoPuroSec;
                 const journeySec = journeyElapsed;
                 const logisticSec = Math.max(0, journeySec - hmTotalEfetivo);
+                
                 return { 
                     work: hmTotalEfetivo, preparo: totalFormSec, manejo: totalManejoPuroSec,
                     logistics: logisticSec, journey: journeySec, totalTrees: logs.filter(l => l.type === 'tree').length,
@@ -265,7 +254,57 @@
                 window.location.reload();
             };
 
-            // --- TELAS ---
+            // --- SYNC COM SUPABASE (Adicionado conforme solicitado) ---
+            useEffect(() => {
+                const autoSync = setInterval(async () => {
+                    if (!navigator.onLine || !shift?.active) return;
+                    
+                    const allLogs = await idbKeyval.get('mcr_logs_v19') || [];
+                    const shiftData = await idbKeyval.get('mcr_shift_v19');
+                    // Pega tudo que ainda não foi sincronizado
+                    const toSync = allLogs.filter(l => !l.synced && (l.status === 'OK' || l.species === 'DDS_INICIAL'));
+
+                    for (let item of toSync) {
+                        try {
+                            const hm = (item.executionDurationSec || 0) - (item.totalPausedSeconds || 0);
+                            
+                            // Tratamento do DDS
+                            let fotoDDS = item.species === 'DDS_INICIAL' ? (shiftData?.foto_unificada?.base64) : null;
+                            // Se for DDS inicial, usamos a foto do turno como foto 'antes' para garantir envio
+                            let fotosAntes = item.species === 'DDS_INICIAL' ? [shiftData?.foto_unificada?.base64] : (item.photosBefore?.map(p => p.base64) || []);
+                            let fotosDepois = item.photosAfter?.map(p => p.base64) || [];
+
+                            const { error } = await supabase.from('registros_poda').insert([{
+                                data_referencia: shift.journeyDate,
+                                operador_encarregado: shift.operador,
+                                rt_responsavel: shift.rt,
+                                tst_responsavel: shift.tst,
+                                placa: shift.placa,
+                                auxiliares: shift.auxiliares?.join(", "),
+                                especie: item.species,
+                                hm_manejo_seg: hm,
+                                pausa_total_seg: item.totalPausedSeconds || 0,
+                                coordenadas: item.coords,
+                                fotos_antes: fotosAntes,
+                                fotos_depois: fotosDepois,
+                                foto_dds: fotoDDS,
+                                status_servico: item.status,
+                                // Envia metadados se existirem
+                                metadados_auditoria: item.metadata_array
+                            }]);
+                            
+                            if (!error) {
+                                item.synced = true;
+                                await idbKeyval.set('mcr_logs_v19', allLogs);
+                                setLogs(prev => [...prev]); // Atualiza interface
+                            }
+                        } catch (e) { console.log("Sync Fail - Tentando depois"); }
+                    }
+                }, 15000); // Tenta a cada 15s em background
+                return () => clearInterval(autoSync);
+            }, [shift, logs]);
+
+            // TELA INICIAL
             if (view === 'setup' || view === 'edit_team') {
                 return (
                     <div className="p-6 screen-fade pb-20 no-scrollbar">
@@ -292,19 +331,32 @@
                                 ))}
                             </div>
                             <Label>Logística de Apoio</Label>
-                            <input className="w-full p-4 border-2 rounded-2xl font-black uppercase text-sm" placeholder="Placa Apoio" value={shift?.placaAux || ''} onChange={e => setShift({...shift, placaAux: e.target.value.toUpperCase()})} />
+                            <input className="w-full p-4 border-2 rounded-2xl font-black uppercase text-sm" placeholder="Placa Veículo de Apoio" value={shift?.placaAux || ''} onChange={e => setShift({...shift, placaAux: e.target.value.toUpperCase()})} />
                         </Card>
                         <Card><Label required>DDS / Checklist</Label><PhotoUpload fullWidth label="DDS + CHECKLIST" preview={shift?.foto_unificada?.base64} onCapture={async f => setShift({...shift, foto_unificada: await processPhoto(f)})} /></Card>
-                        <button disabled={!shift?.rt || !shift?.operador || !shift?.placa || !shift?.foto_unificada} onClick={() => { setShift({...shift, active: true, journeyStartTime: shift.journeyStartTime || Date.now(), journeyDate: shift.journeyDate || new Date().toLocaleDateString()}); setView('dashboard'); }} className="w-full py-6 rounded-3xl bg-audit-600 text-white font-black text-xl shadow-xl disabled:bg-slate-300 uppercase tracking-tighter">Iniciar Expediente</button>
+                        <button disabled={!shift?.rt || !shift?.operador || !shift?.placa || !shift?.foto_unificada} onClick={async () => { 
+                            const ns = {...shift, active: true, journeyStartTime: shift.journeyStartTime || Date.now(), journeyDate: shift.journeyDate || new Date().toLocaleDateString('pt-BR')};
+                            // Cria log inicial para sincronizar abertura
+                            const ddsLog = { species: "DDS_INICIAL", status: "ABERTURA", timestamp: new Date().toISOString(), synced: false, coords: `${gps.lat},${gps.lng}` };
+                            const nl = [ddsLog, ...logs];
+                            
+                            await idbKeyval.set('mcr_shift_v19', ns); 
+                            await idbKeyval.set('mcr_logs_v19', nl);
+                            setShift(ns); setLogs(nl); setView('dashboard'); 
+                        }} className="w-full py-6 rounded-3xl bg-audit-600 text-white font-black text-xl shadow-xl disabled:bg-slate-300 uppercase tracking-tighter">Iniciar Expediente</button>
                     </div>
                 );
             }
 
+            // PAINEL (DASHBOARD)
             if (view === 'dashboard') return (
                 <div className="screen-fade pb-24 no-scrollbar min-h-screen">
                     <div className="p-4 border-b flex justify-between items-center bg-white sticky top-0 z-40 shadow-sm">
-                        <div className="flex items-center gap-3"><div className="w-10 h-10 bg-audit-600 rounded-full flex items-center justify-center text-white shadow-lg"><i className="fas fa-tree"></i></div><div><p className="text-[10px] font-black text-audit-600 uppercase leading-none">Gestão MCR</p><p className="font-black text-slate-800 text-sm truncate max-w-[140px] uppercase mt-1.5">{shift.operador}</p></div></div>
-                        <div className="text-right"><p className="text-[9px] font-black text-slate-400 uppercase leading-none">{shift.journeyDate}</p><button onClick={() => setView('edit_team')} className="bg-slate-100 p-1 px-2 mt-1.5 rounded-lg text-[8px] font-black uppercase text-slate-500">Alterar Equipe</button></div>
+                        <div className="flex items-center gap-3"><div className="w-10 h-10 bg-audit-600 rounded-full flex items-center justify-center text-white shadow-lg"><i className="fas fa-tree"></i></div><div><p className="text-[10px] font-black text-audit-600 uppercase leading-none">Gestão MCR</p><p className="font-black text-slate-800 text-sm truncate max-w-[140px] uppercase leading-none mt-1.5">{shift.operador}</p></div></div>
+                        <div className="text-right">
+                            <p className="text-[9px] font-black text-slate-400 uppercase leading-none">{shift.journeyDate}</p>
+                            <button onClick={() => setView('edit_team')} className="bg-slate-100 p-1 px-2 mt-1.5 rounded-lg text-[8px] font-black uppercase text-slate-500">Alterar Equipe</button>
+                        </div>
                     </div>
                     <div className="p-5">
                         <div className="bg-slate-900 p-5 rounded-3xl text-white shadow-2xl mb-4 text-center border-b-4 border-audit-500"><p className="text-[10px] font-black opacity-50 uppercase mb-1 tracking-widest leading-none">Jornada Total Diária</p><p className="text-4xl font-black font-mono text-audit-500 tracking-tighter leading-none">{formatDuration(stats.journey)}</p></div>
@@ -312,6 +364,10 @@
                             <div className="bg-audit-600 p-4 rounded-3xl text-white shadow-xl">
                                 <p className="text-[9px] font-bold opacity-70 uppercase mb-1">Hm Total Efetivo</p>
                                 <p className="text-2xl font-black leading-none">{formatDuration(stats.work)}</p>
+                                <div className="mt-4 pt-3 border-t border-white/20 grid grid-cols-2 gap-2">
+                                    <div><p className="text-[6px] font-black uppercase opacity-60 leading-none">Preparo</p><p className="text-[11px] font-black font-mono mt-0.5">{formatDuration(stats.preparo)}</p></div>
+                                    <div><p className="text-[6px] font-black uppercase opacity-60 leading-none">Manejo</p><p className="text-[11px] font-black font-mono mt-0.5">{formatDuration(stats.manejo)}</p></div>
+                                </div>
                             </div>
                             <div className="bg-slate-800 p-4 rounded-3xl text-white shadow-xl border-b-4 border-amber-500">
                                 <p className="text-[9px] font-bold opacity-70 uppercase mb-1">Logística / Pausas</p>
@@ -319,19 +375,23 @@
                             </div>
                         </div>
                         <div className="grid grid-cols-3 gap-2 mb-6 bg-white p-4 rounded-3xl border border-slate-100 shadow-sm text-center">
-                            <div><p className="text-[8px] font-black text-slate-400 uppercase mb-1">Total</p><p className="text-xl font-black text-slate-800">{stats.totalTrees}</p></div>
-                            <div><p className="text-[8px] font-black text-slate-400 uppercase mb-1">Podas</p><p className="text-xl font-black text-emerald-600">{stats.treesPruned}</p></div>
+                            <div className="border-r border-slate-100"><p className="text-[8px] font-black text-slate-400 uppercase mb-1">Total</p><p className="text-xl font-black text-slate-800">{stats.totalTrees}</p></div>
+                            <div className="border-r border-slate-100"><p className="text-[8px] font-black text-slate-400 uppercase mb-1">Podas</p><p className="text-xl font-black text-emerald-600">{stats.treesPruned}</p></div>
                             <div><p className="text-[8px] font-black text-slate-400 uppercase mb-1">Cortes</p><p className="text-xl font-black text-red-600">{stats.treesSuppressed}</p></div>
                         </div>
                         <div className="space-y-4">
-                            <button onClick={() => { setActiveAction({ pruningTypes: [], status: 'OK', totalPausedSeconds: 0, photosBefore: [], photosAfter: [], startTime: Date.now(), copelRequired: 'NÃO' }); setView('tree_form'); }} className="w-full bg-audit-600 text-white p-9 rounded-[2rem] shadow-xl flex flex-col items-center gap-2 btn-active"><i className="fas fa-plus-circle text-3xl"></i><span className="font-black text-xl uppercase tracking-tighter">Registrar Manejo</span></button>
-                            <button onClick={() => { setActiveAction({ type: 'pause', isPaused: false, photosBefore: [], photosAfter: [] }); setView('global_pause_form'); }} className="w-full bg-white border-2 border-slate-200 text-slate-600 p-6 rounded-3xl shadow-sm flex items-center justify-center gap-4 btn-active"><i className="fas fa-pause-circle text-2xl"></i><span className="font-black text-lg uppercase tracking-tighter">Registrar Parada</span></button>
+                            <button onClick={() => { setActiveAction({ pruningTypes: [], status: 'OK', totalPausedSeconds: 0, photosBefore: [], photosAfter: [], startTime: Date.now(), copelRequired: 'NÃO' }); setView('tree_form'); }} className="w-full bg-audit-600 text-white p-9 rounded-[2rem] shadow-xl flex flex-col items-center gap-2 btn-active">
+                                <i className="fas fa-plus-circle text-3xl"></i><span className="font-black text-xl uppercase tracking-tighter">Registrar Manejo</span>
+                            </button>
+                            <button onClick={() => { setActiveAction({ type: 'pause', isPaused: false, photosBefore: [], photosAfter: [] }); setView('global_pause_form'); }} className="w-full bg-white border-2 border-slate-200 text-slate-600 p-6 rounded-3xl shadow-sm flex items-center justify-center gap-4 btn-active">
+                                <i className="fas fa-pause-circle text-2xl"></i><span className="font-black text-lg uppercase tracking-tighter">Registrar Parada</span>
+                            </button>
                         </div>
                     </div>
                     <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/95 border-t z-40"><button onClick={() => setShowEndConfirm(true)} className="w-full bg-audit-900 text-white py-5 rounded-3xl font-black text-sm uppercase tracking-widest">Encerrar Turno</button></div>
                     {showEndConfirm && (
                         <div className="fixed inset-0 z-50 modal-overlay flex items-center justify-center p-6 screen-fade">
-                            <div className="bg-white w-full max-w-sm rounded-[2rem] p-8 shadow-2xl text-center">
+                            <div className="bg-white w-full max-w-sm rounded-[2rem] p-8 shadow-2xl text-center border-t-4 border-audit-900">
                                 <i className="fas fa-warning text-audit-900 text-5xl mb-4"></i><h3 className="text-xl font-black text-slate-800 uppercase leading-none">Confirmar Fechamento?</h3>
                                 <div className="mt-8 space-y-3">
                                     <button onClick={() => { setShift({...shift, journeyEndTime: Date.now()}); setShowEndConfirm(false); setView('end_day'); }} className="w-full bg-audit-900 text-white py-5 rounded-2xl font-black uppercase shadow-lg">Sim, Encerrar</button>
@@ -343,6 +403,7 @@
                 </div>
             );
 
+            // FORMULÁRIO DE DADOS DA ÁRVORE (PRONTUÁRIO)
             if (view === 'tree_form') {
                 const isOsRequired = activeAction.demandSource && activeAction.demandSource !== 'manutencao';
                 return (
@@ -358,38 +419,48 @@
                             <Label required>Tipos de Poda</Label>
                             <div className="grid grid-cols-1 gap-2 mb-4">{TIPOS_PODA_DATA.map(t => (<label key={t.id} className={`flex items-center p-4 border-2 rounded-2xl transition-all ${activeAction?.pruningTypes?.includes(t.id) ? 'border-audit-600 bg-emerald-50' : 'border-slate-100'}`}><input type="checkbox" className="hidden" checked={activeAction?.pruningTypes?.includes(t.id)} onChange={() => { const current = activeAction.pruningTypes || []; setActiveAction({...activeAction, pruningTypes: current.includes(t.id) ? current.filter(x => x !== t.id) : [...current, t.id]}); }} /><i className={`fas ${activeAction?.pruningTypes?.includes(t.id) ? 'fa-check-square text-audit-600' : 'fa-square text-slate-300'} mr-3`}></i><span className="text-[11px] font-black uppercase">{t.id}</span></label>))}</div>
                             <Label required>Espécie</Label>
-                            <input list="especies" className="w-full p-4 border-2 rounded-2xl bg-slate-50 font-black mb-4 uppercase text-sm" value={activeAction.species || ''} onChange={e => setActiveAction({...activeAction, species: e.target.value.toUpperCase()})} /><datalist id="especies">{LISTA_ESPECIES.map(s => <option key={s} value={s} />)}</datalist>
+                            <input list="especies" className="w-full p-4 border-2 rounded-2xl bg-slate-50 font-black mb-4 uppercase text-sm" placeholder="Pesquisar espécie..." value={activeAction.species || ''} onChange={e => setActiveAction({...activeAction, species: e.target.value.toUpperCase()})} /><datalist id="especies">{LISTA_ESPECIES.map(s => <option key={s} value={s} />)}</datalist>
                             <div className="grid grid-cols-2 gap-4">
                                 <div><Label required>CAP (cm)</Label><input type="number" className="w-full p-4 border-2 rounded-2xl font-black text-sm" value={activeAction.cap || ''} onChange={e => setActiveAction({...activeAction, cap: e.target.value})} /></div>
                                 <div><Label required>Altura (m)</Label><input type="number" className="w-full p-4 border-2 rounded-2xl font-black text-sm" value={activeAction.height || ''} onChange={e => setActiveAction({...activeAction, height: e.target.value})} /></div>
                             </div>
                         </Card>
                         <Card className={`border-2 ${activeAction.status === 'IMPEDIDO' ? 'border-red-600 bg-red-50' : 'border-slate-200 bg-white'}`}>
-                            <label className="flex items-center gap-3 p-2"><input type="checkbox" className="w-6 h-6 rounded" checked={activeAction.status === 'IMPEDIDO'} onChange={e => setActiveAction({...activeAction, status: e.target.checked ? 'IMPEDIDO' : 'OK'})} /><span className="font-black text-red-600 uppercase text-xs">Relatar Impedimento</span></label>
+                            <label className="flex items-center gap-3 cursor-pointer p-2">
+                                <input type="checkbox" className="w-6 h-6 rounded" checked={activeAction.status === 'IMPEDIDO'} onChange={e => setActiveAction({...activeAction, status: e.target.checked ? 'IMPEDIDO' : 'OK'})} />
+                                <span className="font-black text-red-600 uppercase text-xs">Relatar Impedimento (Serviço Impossível)</span>
+                            </label>
                             {activeAction.status === 'IMPEDIDO' && (
-                                <div className="mt-4 space-y-4">
-                                    <textarea className="w-full p-3 border-2 border-red-300 rounded-2xl text-sm font-black uppercase" placeholder="MOTIVO..." rows="3" value={activeAction.problemReport || ''} onChange={e => setActiveAction({...activeAction, problemReport: e.target.value})} />
-                                    <PhotoUpload label="FOTO EVIDÊNCIA" preview={activeAction.photoProblem?.base64} onCapture={async f => setActiveAction({...activeAction, photoProblem: await processPhoto(f)})} />
+                                <div className="mt-4 space-y-4 screen-fade">
+                                    <Label required>Relato Técnico do Impedimento</Label>
+                                    <textarea className="w-full p-3 border-2 border-red-300 rounded-2xl text-sm font-black uppercase" placeholder="DESCREVA O MOTIVO DA IMPOSSIBILIDADE..." rows="3" value={activeAction.problemReport || ''} onChange={e => setActiveAction({...activeAction, problemReport: e.target.value})} />
+                                    <PhotoUpload label="FOTO EVIDÊNCIA" help="MOSTRAR O IMPEDIMENTO" preview={activeAction.photoProblem?.base64} onCapture={async f => setActiveAction({...activeAction, photoProblem: await processPhoto(f)})} />
                                 </div>
                             )}
                         </Card>
-                        <Card className="border-2 border-audit-600 bg-emerald-50">
-                            <Label required>3 Fotos de Antes</Label>
+                        <Card className="border-2 border-audit-600 bg-emerald-50 shadow-md">
+                            <Label required>3 Fotos de Antes (Orientação TR)</Label>
                             <div className="grid grid-cols-3 gap-2 mb-2">
-                                {[0,1,2].map(i => <PhotoUpload key={i} label={`F${i+1}`} preview={activeAction.photosBefore?.[i]?.base64} onCapture={async f => { let list = [...activeAction.photosBefore]; list[i] = await processPhoto(f); setActiveAction({...activeAction, photosBefore: list}); }} />)}
+                                <PhotoUpload label="F1" help="GERAL" preview={activeAction.photosBefore?.[0]?.base64} onCapture={async f => { let list = [...(activeAction.photosBefore || [])]; let metas = [...(activeAction.metadata_array || [])]; const res = await processPhoto(f); if(res) { list[0] = res; metas[0] = res.metadata; setActiveAction({...activeAction, photosBefore: list, metadata_array: metas}); } }} />
+                                <PhotoUpload label="F2" help="DETALHE" preview={activeAction.photosBefore?.[1]?.base64} onCapture={async f => { let list = [...(activeAction.photosBefore || [])]; let metas = [...(activeAction.metadata_array || [])]; const res = await processPhoto(f); if(res) { list[1] = res; metas[1] = res.metadata; setActiveAction({...activeAction, photosBefore: list, metadata_array: metas}); } }} />
+                                <PhotoUpload label="F3" help="RUA" preview={activeAction.photosBefore?.[2]?.base64} onCapture={async f => { let list = [...(activeAction.photosBefore || [])]; let metas = [...(activeAction.metadata_array || [])]; const res = await processPhoto(f); if(res) { list[2] = res; metas[2] = res.metadata; setActiveAction({...activeAction, photosBefore: list, metadata_array: metas}); } }} />
                             </div>
+                            
                             {activeAction.status === 'IMPEDIDO' ? (
                                 <button disabled={!activeAction.species || !activeAction.problemReport || !activeAction.photoProblem} onClick={async () => {
                                     const now = Date.now();
                                     const log = { ...activeAction, endTime: now, status: 'IMPEDIDO', coords: `${gps.lat},${gps.lng}`, timestamp: new Date().toISOString() };
-                                    setLogs([log, ...logs]); await syncToCloud(log); setActiveAction(null); setView('dashboard');
-                                }} className="w-full mt-4 py-6 rounded-3xl bg-red-600 text-white font-black uppercase text-xl">Registrar Impedimento</button>
+                                    setLogs([log, ...logs]); 
+                                    await idbKeyval.set('mcr_logs_v19', [log, ...logs]);
+                                    setActiveAction(null); setView('dashboard');
+                                }} className="w-full mt-4 py-6 rounded-3xl bg-red-600 text-white font-black uppercase text-xl shadow-lg">Registrar Impedimento</button>
                             ) : (
                                 <button disabled={!activeAction.species || !activeAction.cap || !activeAction.height || !activeAction.pruningTypes?.length || (isOsRequired && !activeAction.osId) || activeAction.photosBefore?.filter(p=>p).length < 3} onClick={() => { 
                                     const now = Date.now();
-                                    setActiveAction({ ...activeAction, type: 'tree', executionStartTime: now, formDurationSec: Math.floor((now - activeAction.startTime) / 1000), desc: `${activeAction.species} [${activeAction.osId || 'ROTINA'}]`, treeCoords: `${gps.lat},${gps.lng}` }); 
+                                    const formDuration = Math.floor((now - activeAction.startTime) / 1000);
+                                    setActiveAction({ ...activeAction, type: 'tree', executionStartTime: now, formDurationSec: formDuration, desc: `${activeAction.species} [${activeAction.osId || 'ROTINA'}]`, treeCoords: `${gps.lat},${gps.lng}` }); 
                                     setView('active_service'); 
-                                }} className="w-full mt-4 py-6 rounded-3xl bg-audit-600 text-white font-black uppercase text-xl">Iniciar Manejo</button>
+                                }} className="w-full mt-4 py-6 rounded-3xl bg-audit-600 text-white font-black uppercase text-xl shadow-lg">Iniciar Manejo Técnico</button>
                             )}
                         </Card>
                     </div>
@@ -398,26 +469,37 @@
 
             if (view === 'active_service') {
                 const totalElapsed = elapsed - (activeAction.totalPausedSeconds || 0);
+                const execElapsed = Math.floor((Date.now() - (activeAction.executionStartTime || activeAction.startTime)) / 1000);
+                const formElapsed = activeAction.formDurationSec || 0;
                 return (
                     <div className="p-6 screen-fade flex flex-col min-h-screen no-scrollbar">
-                        <div className="text-center mt-6"><span className="bg-audit-600 text-white px-5 py-1.5 rounded-full text-[10px] font-black uppercase">Execução em Curso</span><h2 className="text-xl font-black text-slate-800 uppercase mt-5 leading-tight">{activeAction.desc}</h2></div>
+                        <div className="text-center mt-6"><span className="bg-audit-600 text-white px-5 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest leading-none">Execução em Curso</span><h2 className="text-xl font-black text-slate-800 uppercase mt-5 leading-tight">{activeAction.desc}</h2></div>
                         <div className="flex-1 flex flex-col justify-center items-center">
                             <div className="text-7xl font-black text-slate-900 timer-glow leading-none font-mono tracking-tighter">{formatDuration(totalElapsed)}</div>
                             <p className="text-slate-400 font-black text-[11px] mt-2 uppercase tracking-widest">Hm Efetivo Total</p>
+                            <div className="mt-12 grid grid-cols-2 gap-4 w-full max-w-sm">
+                                <div className="bg-slate-50 p-5 rounded-[2rem] border border-slate-200 text-center"><p className="text-[7px] font-black text-slate-400 uppercase mb-1">Preparo</p><p className="text-lg font-black text-slate-600 font-mono leading-none">{formatDuration(formElapsed)}</p></div>
+                                <div className="bg-emerald-50 p-5 rounded-[2rem] border border-emerald-200 text-center"><p className="text-[7px] font-black text-emerald-500 uppercase mb-1">Poda</p><p className="text-lg font-black text-emerald-700 font-mono leading-none">{formatDuration(execElapsed)}</p></div>
+                            </div>
                         </div>
                         <div className="mt-auto space-y-4 pb-8">
-                            <button onClick={() => setView('pause_during_tree')} className="w-full bg-amber-500 text-black py-5 rounded-3xl font-black text-lg shadow-xl flex items-center justify-center gap-3"><i className="fas fa-pause"></i> Interromper Manejo</button>
+                            <button onClick={() => { setActiveAction({...activeAction, isPaused: true, pauseStartTime: Date.now()}); setPauseElapsed(0); setView('pause_during_tree'); }} className="w-full bg-amber-500 text-black py-5 rounded-3xl font-black text-lg shadow-xl flex items-center justify-center gap-3 active:scale-95 transition-transform"><i className="fas fa-pause"></i> Interromper Manejo</button>
                             <Card className="border-2 border-audit-900 shadow-xl">
                                 <Label required>3 Fotos de Depois</Label>
                                 <div className="grid grid-cols-3 gap-2 mb-2">
-                                    {[0,1,2].map(i => <PhotoUpload key={i} label={`F${i+1}`} preview={activeAction.photosAfter?.[i]?.base64} onCapture={async f => { let list = [...activeAction.photosAfter]; list[i] = await processPhoto(f); setActiveAction({...activeAction, photosAfter: list}); }} />)}
+                                    <PhotoUpload label="F1" help="COPA" preview={activeAction.photosAfter?.[0]?.base64} onCapture={async f => { let list = [...(activeAction.photosAfter || [])]; list[0] = await processPhoto(f); setActiveAction({...activeAction, photosAfter: list}); }} />
+                                    <PhotoUpload label="F2" help="CORTE" preview={activeAction.photosAfter?.[1]?.base64} onCapture={async f => { let list = [...(activeAction.photosAfter || [])]; list[1] = await processPhoto(f); setActiveAction({...activeAction, photosAfter: list}); }} />
+                                    <PhotoUpload label="F3" help="LIMPO" preview={activeAction.photosAfter?.[2]?.base64} onCapture={async f => { let list = [...(activeAction.photosAfter || [])]; list[2] = await processPhoto(f); setActiveAction({...activeAction, photosAfter: list}); }} />
                                 </div>
                                 <button disabled={activeAction.photosAfter?.filter(p=>p).length < 3} onClick={async () => { 
                                     const now = Date.now();
-                                    const totalDur = Math.floor((now - activeAction.startTime) / 1000);
-                                    const log = { ...activeAction, endTime: now, durationSec: totalDur, effectiveDurationSec: totalDur - (activeAction.totalPausedSeconds || 0), coords: activeAction.treeCoords || `${gps.lat},${gps.lng}`, status: 'OK', timestamp: new Date().toISOString() };
-                                    setLogs([log, ...logs]); await syncToCloud(log); setActiveAction(null); setView('dashboard'); 
-                                }} className="w-full mt-4 py-5 rounded-2xl bg-audit-900 text-white font-black uppercase shadow-xl">Finalizar e Salvar</button>
+                                    const totalDuration = Math.floor((now - activeAction.startTime) / 1000);
+                                    const executionDuration = totalDuration - (activeAction.formDurationSec || 0);
+                                    const log = { ...activeAction, endTime: now, durationSec: totalDuration, effectiveDurationSec: totalDuration - (activeAction.totalPausedSeconds || 0), executionDurationSec: executionDuration, coords: activeAction.treeCoords || `${gps.lat},${gps.lng}`, status: 'OK', timestamp: new Date().toISOString() };
+                                    setLogs([log, ...logs]);
+                                    await idbKeyval.set('mcr_logs_v19', [log, ...logs]); 
+                                    setActiveAction(null); setView('dashboard'); 
+                                }} className="w-full mt-4 py-5 rounded-2xl bg-audit-900 text-white font-black uppercase shadow-xl disabled:bg-slate-300">Finalizar e Salvar</button>
                             </Card>
                         </div>
                     </div>
@@ -425,59 +507,87 @@
             }
 
             if (view === 'global_pause_form' || view === 'pause_during_tree') {
+                const isOther = activeAction?.tempPauseReason === 'Outros';
                 return (
                     <div className="p-6 screen-fade no-scrollbar">
                         <h2 className="text-xl font-black text-slate-800 mb-6 uppercase italic">Registrar Parada</h2>
                         <Card>
                             <Label required>Motivo da Interrupção</Label>
                             <select className="w-full p-4 border-2 rounded-2xl mb-4 font-black bg-white text-sm" value={activeAction?.tempPauseReason || ''} onChange={e => setActiveAction({...activeAction, tempPauseReason: e.target.value})}><option value="">Selecione...</option>{PAUSE_REASONS.map(r => <option key={r} value={r}>{r}</option>)}</select>
+                            {isOther && (<div className="mb-4"><Label required>Motivação Detalhada</Label><textarea className="w-full p-3 border-2 border-amber-300 rounded-2xl text-sm font-black uppercase" rows="3" placeholder="DESCREVA O MOTIVO..." value={activeAction.customPauseReason || ''} onChange={e => setActiveAction({...activeAction, customPauseReason: e.target.value})} /></div>)}
+                            <Label required>Foto Evidência (Obrigatório)</Label>
                             <PhotoUpload label="FOTO PAUSA" onCapture={async f => setActiveAction({...activeAction, tempPausePhoto: await processPhoto(f)})} preview={activeAction?.tempPausePhoto?.base64} />
                         </Card>
-                        <button disabled={!activeAction?.tempPauseReason || !activeAction?.tempPausePhoto} onClick={() => { 
+                        <button disabled={!activeAction?.tempPauseReason || !activeAction?.tempPausePhoto || (isOther && !activeAction.customPauseReason)} onClick={() => { 
                             const now = Date.now();
-                            setActiveAction({ ...activeAction, type: activeAction?.type || 'pause', isPaused: true, pauseStartTime: now, startTime: activeAction?.startTime || now, pauseCoords: `${gps.lat},${gps.lng}` }); 
+                            const isNewPause = !activeAction?.startTime;
+                            setActiveAction({ ...activeAction, type: activeAction?.type || 'pause', isPaused: true, pauseStartTime: now, startTime: isNewPause ? now : activeAction.startTime, pauseCoords: `${gps.lat},${gps.lng}` }); 
                             setPauseElapsed(0); setView('active_pause_screen'); 
-                        }} className="w-full py-6 rounded-3xl bg-amber-600 text-white font-black text-xl uppercase shadow-xl">Confirmar Pausa</button>
+                        }} className="w-full py-6 rounded-3xl bg-amber-600 text-white font-black text-xl shadow-xl disabled:bg-slate-300 uppercase italic">Confirmar Pausa</button>
+                        <button onClick={()=>setView(activeAction.type==='tree' ? 'active_service' : 'dashboard')} className="w-full p-5 text-slate-400 font-black uppercase text-[10px] tracking-widest underline decoration-dotted">Voltar</button>
                     </div>
                 );
             }
 
             if (view === 'active_pause_screen') return (
                 <div className="p-6 screen-fade flex flex-col min-h-screen bg-slate-900 text-white no-scrollbar">
-                    <div className="text-center mt-12"><span className="bg-amber-500 text-black px-4 py-1.5 rounded-full text-[10px] font-black uppercase">Serviço Suspenso</span><h2 className="text-2xl font-black uppercase mt-6 text-amber-500 leading-tight">{activeAction.tempPauseReason}</h2></div>
-                    <div className="flex-1 flex flex-col justify-center items-center">
+                    <div className="text-center mt-12 px-4"><span className="bg-amber-500 text-black px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest">Serviço Suspenso</span><h2 className="text-2xl font-black uppercase mt-6 text-amber-500 leading-tight">{activeAction.tempPauseReason === 'Outros' ? activeAction.customPauseReason : activeAction.tempPauseReason}</h2></div>
+                    <div className="flex-1 flex flex-col justify-center items-center px-2">
                         <div className="fit-timer font-black text-amber-500 pause-glow leading-none font-mono tracking-tighter">{formatDuration(pauseElapsed)}</div>
+                        <p className="text-[10px] font-black text-slate-500 mt-4 uppercase tracking-widest">Cronômetro de Parada</p>
                     </div>
-                    <button onClick={async () => { 
-                        const pDur = Math.floor((Date.now() - activeAction.pauseStartTime) / 1000); 
+                    <button onClick={async () => { const pDur = Math.floor((Date.now() - activeAction.pauseStartTime) / 1000); 
                         if (activeAction.type === 'pause') { 
-                            const log = { ...activeAction, endTime: Date.now(), durationSec: pDur, status: 'PAUSA', timestamp: new Date().toISOString(), coords: activeAction.pauseCoords || `${gps.lat},${gps.lng}` };
-                            setLogs([log, ...logs]); await syncToCloud(log); setActiveAction(null); setView('dashboard'); 
-                        } else { 
-                            setActiveAction({...activeAction, isPaused: false, totalPausedSeconds: (activeAction.totalPausedSeconds || 0) + pDur, tempPauseReason: null, tempPausePhoto: null}); setView('active_service'); 
-                        }
-                    }} className="bg-emerald-600 text-white py-7 rounded-[2rem] font-black text-2xl mb-12 uppercase mx-4">Retomar Operação</button>
+                            const log = {...activeAction, endTime: Date.now(), durationSec: pDur, status: 'PAUSA', timestamp: new Date().toISOString(), coords: activeAction.pauseCoords || `${gps.lat},${gps.lng}`, totalPausedSeconds: pDur};
+                            const nl = [log, ...logs];
+                            setLogs(nl); await idbKeyval.set('mcr_logs_v19', nl); setActiveAction(null); setView('dashboard'); 
+                        } 
+                        else { setActiveAction({...activeAction, isPaused: false, totalPausedSeconds: (activeAction.totalPausedSeconds || 0) + pDur, tempPauseReason: null, tempPausePhoto: null, customPauseReason: null}); setView('active_service'); }
+                    }} className="bg-emerald-600 text-white py-7 rounded-[2rem] font-black text-2xl mb-12 uppercase shadow-xl tracking-tighter mx-4">Retomar Operação</button>
                 </div>
             );
 
             if (view === 'end_day') return (
-                <div className="p-6 screen-fade text-center pb-12 no-scrollbar">
-                    <i className="fas fa-circle-check text-audit-600 text-5xl mb-4"></i><h2 className="text-2xl font-black text-audit-900 uppercase">Fechamento do Dia</h2>
-                    <Card className="bg-emerald-50 mt-4 text-left border-audit-200">
-                        <div className="flex justify-between font-black mb-2 border-b border-emerald-100 pb-2"><span className="text-[10px] uppercase">Hm Efetivo:</span><span className="font-mono">{formatDuration(stats.work)}</span></div>
-                        <div className="flex justify-between font-black text-audit-900"><span className="text-[11px] uppercase">Jornada Total:</span><span className="text-lg font-mono">{formatDuration(stats.journey)}</span></div>
+                <div className="p-6 screen-fade text-center pb-12 no-scrollbar min-h-screen flex flex-col justify-center">
+                    <i className="fas fa-check-circle text-audit-600 text-5xl mb-4"></i><h2 className="text-2xl font-black text-audit-900 uppercase">Fechamento do Dia</h2>
+                    
+                    <Card className="bg-slate-50 border-slate-200 mt-4 text-left p-3">
+                        <p className="text-[9px] font-black text-audit-600 uppercase mb-2 leading-none tracking-widest"><i className="fas fa-shield-halved mr-1"></i> Proteção de Dados:</p>
+                        <p className="text-[10px] text-slate-500 font-bold leading-tight">O sistema salva tudo automaticamente no seu navegador. Se o celular estragar, os dados permanecem salvos até que o cache do navegador seja limpo. Em caso de perda, apenas o envio do RAD garante a segurança total.</p>
                     </Card>
-                    <div className="grid grid-cols-3 gap-2 mb-6">
-                        <div className="bg-white p-3 rounded-2xl border"><p className="text-[7px] font-black uppercase">Total</p><p className="text-lg font-black">{stats.totalTrees}</p></div>
-                        <div className="bg-white p-3 rounded-2xl border"><p className="text-[7px] font-black uppercase text-emerald-600">Podas</p><p className="text-lg font-black">{stats.treesPruned}</p></div>
-                        <div className="bg-white p-3 rounded-2xl border"><p className="text-[7px] font-black uppercase text-red-600">Cortes</p><p className="text-lg font-black">{stats.treesSuppressed}</p></div>
+
+                    <Card className="bg-emerald-50 mt-4 space-y-4 text-left border-audit-200">
+                        <div className="flex justify-between border-b border-emerald-100 pb-2 font-black"><span className="text-[10px] text-emerald-600 uppercase tracking-widest leading-none">Hm Efetivo Acumulado:</span><span className="text-sm font-mono">{formatDuration(stats.work)}</span></div>
+                        <div className="flex justify-between border-b border-emerald-100 pb-2"><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">Logística / Pausas:</span><span className="text-sm font-bold text-slate-800 font-mono">{formatDuration(stats.logistics)}</span></div>
+                        <div className="flex justify-between font-black text-audit-700 border-t pt-2 mt-2"><span className="text-[11px] uppercase tracking-widest leading-none font-black text-audit-900">Jornada Total:</span><span className="text-base font-black font-mono">{formatDuration(stats.journey)}</span></div>
+                    </Card>
+                    
+                    <div className="grid grid-cols-3 gap-2 mb-6 text-center">
+                        <div className="bg-white p-3 rounded-2xl border border-emerald-100"><p className="text-[7px] font-black text-slate-400 uppercase">Atendidas</p><p className="text-lg font-black">{stats.totalTrees}</p></div>
+                        <div className="bg-white p-3 rounded-2xl border border-emerald-100"><p className="text-[7px] font-black text-slate-400 uppercase">Podas</p><p className="text-lg font-black text-emerald-600">{stats.treesPruned}</p></div>
+                        <div className="bg-white p-3 rounded-2xl border border-emerald-100"><p className="text-[7px] font-black text-slate-400 uppercase">Cortes</p><p className="text-lg font-black text-red-600">{stats.treesSuppressed}</p></div>
                     </div>
+
+                    <div className="p-4 bg-amber-50 rounded-2xl text-left border border-amber-200 mb-6">
+                        <p className="text-[9px] font-black text-amber-700 uppercase mb-2 leading-none tracking-widest"><i className="fas fa-envelope mr-1"></i> Destinatário do RAD:</p>
+                        <p className="text-[11px] text-amber-900 font-black mb-2">{TARGET_EMAIL}</p>
+                        <p className="text-[8px] font-bold text-amber-600 uppercase leading-tight italic">O arquivo será bloqueado com senha para proteção das fotos e dados. Envie utilizando o GMAIL no menu de compartilhamento.</p>
+                    </div>
+
                     <button disabled={isExporting} onClick={async () => {
                             setIsExporting(true);
                             try {
                                 const zip = new JSZip();
-                                zip.file("RELATORIO_DETALHADO.json", JSON.stringify({ shift, logs }, null, 2));
-                                const imgs = zip.folder("EVIDENCIAS_E_METADADOS");
+                                const shiftInfo = { ...shift, totalStats: stats };
+                                zip.file("DADOS_DETALHADOS_AUDITORIA.json", JSON.stringify({ shift: shiftInfo, logs }, null, 2));
+                                let csv = "Status;OS;Item;Inicio;Fim;HmEfetivo;Preparo;Manejo;GPS;Equipe;Placa;Timestamp\n";
+                                logs.forEach(l => {
+                                    const prep = l.formDurationSec || 0;
+                                    const mane = (l.executionDurationSec || 0) - (l.totalPausedSeconds || 0);
+                                    csv += `${l.status};${l.osId || 'ROTINA'};${l.desc};${new Date(l.startTime).toISOString()};${new Date(l.endTime).toISOString()};${l.effectiveDurationSec || 0};${prep};${mane};${l.coords || ''};${shift.operador};${shift.placa};${l.timestamp || ''}\n`;
+                                });
+                                zip.file("RELATORIO_AUDITORIA_MCR.csv", csv);
+                                const imgs = zip.folder("EVIDENCIAS_GEORREFERENCIADAS");
                                 if(shift.foto_unificada) imgs.file("01_ABERTURA.jpg", shift.foto_unificada.base64.split(',')[1], {base64: true});
                                 logs.forEach((l, idx) => {
                                     if(l.tempPausePhoto) imgs.file(`LOG_${idx}_PAUSA.jpg`, l.tempPausePhoto.base64.split(',')[1], {base64: true});
@@ -485,23 +595,57 @@
                                     l.photosBefore?.forEach((p, i) => { if(p) imgs.file(`ARV_${idx}_ANTES_${i+1}.jpg`, p.base64.split(',')[1], {base64: true}) });
                                     l.photosAfter?.forEach((p, i) => { if(p) imgs.file(`ARV_${idx}_DEPOIS_${i+1}.jpg`, p.base64.split(',')[1], {base64: true}) });
                                 });
-                                // DOWNLOAD DO ZIP DESENCRIPTADO (SEM SENHA)
+                                
                                 const blob = await zip.generateAsync({type:"blob"});
-                                const fileName = `RAD_MCR_${new Date().toISOString().slice(0,10)}.zip`;
-                                const a = document.createElement("a"); 
-                                a.href = URL.createObjectURL(blob); 
-                                a.download = fileName; 
-                                a.click(); 
-                                await finalizeAndClearAll(); 
-                            } catch(e) { alert("Erro: " + e.message); } finally { setIsExporting(false); }
-                        }} className="w-full py-6 rounded-3xl bg-audit-600 text-white font-black text-xl shadow-xl mt-2 uppercase flex items-center justify-center gap-3">
-                        <i className={isExporting ? "fas fa-spinner fa-spin" : "fas fa-download"}></i> {isExporting ? "GERANDO ZIP..." : "BAIXAR ZIP DIRETO!"}
-                    </button>
-                    <button onClick={()=>setView('dashboard')} className="mt-8 text-slate-300 font-black uppercase text-[10px] underline">Voltar</button>
+                                const reader = new FileReader();
+                                reader.onload = async () => {
+                                    const arrayBuffer = reader.result;
+                                    const wordArray = CryptoJS.lib.WordArray.create(arrayBuffer);
+                                    // CRIPTOGRAFIA AES USANDO A SENHA FORNECIDA
+                                    const encrypted = CryptoJS.AES.encrypt(wordArray, ZIP_PASSWORD).toString();
+                                    const encryptedBlob = new Blob([encrypted], { type: "application/octet-stream" });
+                                    
+                                    const fileName = `RAD_MCR_PROTEGIDO_${new Date().toISOString().slice(0,10)}.zip`;
+                                    const file = new File([encryptedBlob], fileName, { type: "application/octet-stream" });
+
+                                    if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+                                        try {
+                                            await navigator.share({ 
+                                                files: [file], 
+                                                title: 'RAD MCR PROTEGIDO', 
+                                                text: `RELATÓRIO RAD DIÁRIO - ENVIAR PARA: ${TARGET_EMAIL}` 
+                                            });
+                                            await finalizeAndClearAll();
+                                        } catch (err) {
+                                            if (err.name !== 'AbortError') { 
+                                                const a = document.createElement("a"); 
+                                                a.href = URL.createObjectURL(encryptedBlob); 
+                                                a.download = fileName; 
+                                                a.click(); 
+                                                await finalizeAndClearAll(); 
+                                            }
+                                        }
+                                    } else { 
+                                        const a = document.createElement("a"); 
+                                        a.href = URL.createObjectURL(encryptedBlob); 
+                                        a.download = fileName; 
+                                        a.click(); 
+                                        await finalizeAndClearAll(); 
+                                    }
+                                };
+                                reader.readAsArrayBuffer(blob);
+
+                            } catch(e) { 
+                                alert("Erro na exportação: " + e.message); 
+                            } finally { 
+                                setIsExporting(false); 
+                            }
+                        }} className="w-full py-6 rounded-3xl bg-audit-600 text-white font-black text-xl shadow-xl mt-2 uppercase tracking-tighter flex items-center justify-center gap-3"><i className={isExporting ? "fas fa-spinner fa-spin" : "fas fa-lock"}></i> {isExporting ? "CRIPTOGRAFANDO..." : "GERAR E ENVIAR RAD!"}</button>
+                    <button onClick={()=>setView('dashboard')} className="mt-8 text-slate-300 font-black uppercase text-[10px] tracking-widest underline underline-offset-4">Voltar ao Painel</button>
                 </div>
             );
 
-            if (view === 'loading') return <div className="h-screen bg-audit-900 flex items-center justify-center text-white font-black italic animate-pulse tracking-widest">SGP AUDIT...</div>;
+            if (view === 'loading') return <div className="h-screen bg-audit-900 flex items-center justify-center text-white font-black italic tracking-widest animate-pulse">SGP AUDIT...</div>;
             return null;
         };
 
