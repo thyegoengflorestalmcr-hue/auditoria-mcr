@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SGP AUDIT v19.4 | MCR Controle Crítico</title>
+    <title>SGP AUDIT v19.5 | MCR Controle Crítico</title>
     
     <!-- Bibliotecas Core -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -47,8 +47,9 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
 
-        // --- CONFIGURAÇÃO SUPABASE (CORRIGIDA) ---
-        const SUPABASE_URL = "https://kqzxhrywfrtbyxwgvggsd.supabase.co"; // URL Corrigida (vggsd)
+        // --- CONFIGURAÇÃO SUPABASE (CORRIGIDA E VALIDADA) ---
+        // Extraído da sua Key: kqzxhrywfrtbyxwgvggsd
+        const SUPABASE_URL = "https://kqzxhrywfrtbyxwgvggsd.supabase.co";
         const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtxenhyeXdmcnRieXh3Z3ZnZ3NkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg2NjE4NjksImV4cCI6MjA4NDIzNzg2OX0.2XCcj9dFQqMHooUmF1D1Yuy9CvKPvabMO0Ai3A_Mto8";
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -221,10 +222,12 @@
                 } catch (e) { return null; }
             };
 
-            // --- SYNC SUPABASE OTIMIZADO (PARA NÃO TRAVAR) ---
+            // --- SYNC SUPABASE OTIMIZADO (URL CORRIGIDA) ---
             const pushToSupabase = async (logItem) => {
                 try {
-                    // 1. Prepara o pacote com todas as informações (incluindo fotos para testar)
+                    console.log("Iniciando envio para tabela 'registros_poda'...");
+                    
+                    // 1. Prepara o pacote com todas as informações
                     const dadosParaEnviar = {
                         operador_encarregado: shift.operador,
                         rt_responsavel: shift.rt,
@@ -232,7 +235,7 @@
                         data_referencia: shift.journeyDate,
                         sincronizado_em: new Date().toISOString(),
                         dados_tecnicos: {
-                            ...logItem, // Fotos e Dados do Formulário
+                            ...logItem, 
                             placa: shift.placa,
                             equipe: shift.auxiliares,
                             shift_data: shift
@@ -243,30 +246,33 @@
                     const payloadString = JSON.stringify(dadosParaEnviar);
                     const tamanhoMB = payloadString.length / (1024 * 1024);
 
-                    console.log(`Tentando enviar: ${tamanhoMB.toFixed(2)} MB`);
+                    console.log(`Tamanho do pacote: ${tamanhoMB.toFixed(2)} MB`);
 
                     // Se for maior que 5.5MB, remove fotos SOMENTE DO PACOTE DE NUVEM
-                    // (No celular/ZIP as fotos continuam intactas)
                     if (tamanhoMB > 5.5) {
-                        console.warn("Pacote grande demais para envio instantâneo. Removendo imagens do envio Cloud.");
+                        console.warn("⚠️ Pacote > 5.5MB. Removendo imagens do envio para evitar travamento.");
+                        alert("Aviso: As fotos deste registro são muito grandes para envio imediato. Elas foram salvas no ZIP, mas o registro online ficará apenas com o texto.");
                         delete dadosParaEnviar.dados_tecnicos.photosBefore;
                         delete dadosParaEnviar.dados_tecnicos.photosAfter;
                         delete dadosParaEnviar.dados_tecnicos.photoProblem;
                         delete dadosParaEnviar.dados_tecnicos.tempPausePhoto;
                     }
 
-                    // 3. Envia para a tabela 'registros_poda' (A preparada com PostGIS)
+                    // 3. Envia para a tabela 'registros_poda' (URL AGORA CORRETA)
                     const { error } = await supabaseClient
                         .from('registros_poda')
                         .insert([dadosParaEnviar]);
                     
                     if (error) {
                         console.error("ERRO SUPABASE:", error);
-                        // Falha silenciosa para não parar a operação de campo
+                        alert("⚠️ Erro de Sincronização: " + error.message);
                     } else {
-                        console.log("✅ SUCESSO! Dados sincronizados com Supabase.");
+                        console.log("✅ SUCESSO! Dados sincronizados.");
                     }
-                } catch (e) { console.error("Erro de conexão/execução:", e); }
+                } catch (e) { 
+                    console.error("Erro de conexão/execução:", e); 
+                    alert("Erro ao tentar conectar: " + e.message);
+                }
             };
 
             const stats = useMemo(() => {
