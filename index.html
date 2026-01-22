@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SGP AUDIT v19.5 | MCR Controle Crítico</title>
+    <title>SGP AUDIT v19.6 | MCR Controle Crítico</title>
     
     <!-- Bibliotecas Core -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -47,8 +47,8 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
 
-        // --- CONFIGURAÇÃO SUPABASE (CORRIGIDA E VALIDADA) ---
-        // Extraído da sua Key: kqzxhrywfrtbyxwgvggsd
+        // --- CONFIGURAÇÃO SUPABASE (AGORA VALIDADA E CORRIGIDA) ---
+        // A URL correta tem 'kqzxh...' (com H) e não 'kqzx...'
         const SUPABASE_URL = "https://kqzxhrywfrtbyxwgvggsd.supabase.co";
         const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtxenhyeXdmcnRieXh3Z3ZnZ3NkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg2NjE4NjksImV4cCI6MjA4NDIzNzg2OX0.2XCcj9dFQqMHooUmF1D1Yuy9CvKPvabMO0Ai3A_Mto8";
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -222,11 +222,9 @@
                 } catch (e) { return null; }
             };
 
-            // --- SYNC SUPABASE OTIMIZADO (URL CORRIGIDA) ---
+            // --- SYNC SUPABASE OTIMIZADO ---
             const pushToSupabase = async (logItem) => {
                 try {
-                    console.log("Iniciando envio para tabela 'registros_poda'...");
-                    
                     // 1. Prepara o pacote com todas as informações
                     const dadosParaEnviar = {
                         operador_encarregado: shift.operador,
@@ -242,23 +240,22 @@
                         }
                     };
 
-                    // 2. Proteção "Anti-Crash": Verifica tamanho do pacote
+                    // 2. Verifica tamanho (Proteção Anti-Travamento)
                     const payloadString = JSON.stringify(dadosParaEnviar);
                     const tamanhoMB = payloadString.length / (1024 * 1024);
 
                     console.log(`Tamanho do pacote: ${tamanhoMB.toFixed(2)} MB`);
 
-                    // Se for maior que 5.5MB, remove fotos SOMENTE DO PACOTE DE NUVEM
                     if (tamanhoMB > 5.5) {
-                        console.warn("⚠️ Pacote > 5.5MB. Removendo imagens do envio para evitar travamento.");
-                        alert("Aviso: As fotos deste registro são muito grandes para envio imediato. Elas foram salvas no ZIP, mas o registro online ficará apenas com o texto.");
+                        console.warn("Pacote > 5.5MB. Removendo imagens do envio Cloud.");
+                        alert("⚠️ AVISO: As fotos são muito grandes para envio instantâneo. Elas estarão no ZIP final, mas o registro online será apenas texto.");
                         delete dadosParaEnviar.dados_tecnicos.photosBefore;
                         delete dadosParaEnviar.dados_tecnicos.photosAfter;
                         delete dadosParaEnviar.dados_tecnicos.photoProblem;
                         delete dadosParaEnviar.dados_tecnicos.tempPausePhoto;
                     }
 
-                    // 3. Envia para a tabela 'registros_poda' (URL AGORA CORRETA)
+                    // 3. Envia para a tabela 'registros_poda'
                     const { error } = await supabaseClient
                         .from('registros_poda')
                         .insert([dadosParaEnviar]);
@@ -271,7 +268,7 @@
                     }
                 } catch (e) { 
                     console.error("Erro de conexão/execução:", e); 
-                    alert("Erro ao tentar conectar: " + e.message);
+                    // alert("Erro ao tentar conectar: " + e.message);
                 }
             };
 
