@@ -48,7 +48,7 @@
         const { useState, useEffect, useMemo } = React;
 
         // --- CONFIGURAÇÃO SUPABASE ---
-        const SUPABASE_URL = "https://kqzxrywfrtbyxwgvggsd.supabase.co";
+        const SUPABASE_URL = "https://kqzxhrywfrtbyxwgwggsd.supabase.co";
         const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtxenhyeXdmcnRieXh3Z3ZnZ3NkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg2NjE4NjksImV4cCI6MjA4NDIzNzg2OX0.2XCcj9dFQqMHooUmF1D1Yuy9CvKPvabMO0Ai3A_Mto8";
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -222,40 +222,39 @@
             };
 
             // --- MELHORIA: SYNC SUPABASE ---
-// --- MELHORIA: SYNC SUPABASE CORRIGIDO ---
             const pushToSupabase = async (logItem) => {
                 try {
-                    // 1. Fazemos a "Tradução" dos dados do App para as colunas do seu Banco
-                    const dadosParaO_Banco = {
-                        // Colunas que existem na sua tabela 'registros_poda'
-                        operador_encarregado: shift.operador, 
-                        rt_responsavel: shift.rt,
-                        tst_responsavel: shift.tst,
-                        data_referencia: shift.journeyDate,
-                        sincronizado_em: new Date().toISOString(),
-                        
-                        // Todo o resto (espécie, fotos, altura, podas) vai aqui dentro
-                        // para não perdermos nenhuma informação técnica
-                        dados_tecnicos: {
-                            ...logItem,
-                            placa_caminhao: shift.placa,
-                            equipe_apoio: shift.auxiliares
-                        }
-                    };
-
-                    // 2. Enviamos para a tabela correta: 'registros_poda'
                     const { error } = await supabaseClient
-                        .from('registros_poda') // <--- MUDAMOS O NOME AQUI
-                        .insert([dadosParaO_Banco]);
-                    
-                    if (error) {
-                        console.error("Erro Supabase:", error);
-                        alert("Erro ao salvar: " + error.message);
-                    } else {
-                        console.log("Salvo com sucesso em registros_poda!");
-                    }
+                        .from('mcr_audit_logs')
+                        .insert([{ 
+                            ...logItem, 
+                            photosBefore: null, 
+                            photosAfter: null, 
+                            shift_context: { rt: shift.rt, operador: shift.operador, placa: shift.placa }
+                        }]);
                 } catch (e) { console.error(e); }
             };
+
+            const stats = useMemo(() => {
+                const treeLogs = logs.filter(l => l.type === 'tree' && l.status !== 'IMPEDIDO');
+                const totalFormSec = treeLogs.reduce((acc, log) => acc + (log.formDurationSec || 0), 0);
+                const totalManejoPuroSec = treeLogs.reduce((acc, log) => {
+                    const bruteExec = log.executionDurationSec || 0;
+                    const pausedInTree = log.totalPausedSeconds || 0;
+                    return acc + (bruteExec - pausedInTree);
+                }, 0);
+                const hmTotalEfetivo = totalFormSec + totalManejoPuroSec;
+                const journeySec = journeyElapsed;
+                const logisticSec = Math.max(0, journeySec - hmTotalEfetivo);
+                return { work: hmTotalEfetivo, preparo: totalFormSec, manejo: totalManejoPuroSec, logistics: logisticSec, journey: journeySec, totalTrees: logs.filter(l => l.type === 'tree').length, treesPruned: treeLogs.filter(t => t.pruningTypes?.some(p => !p.includes('CORTE'))).length, treesSuppressed: treeLogs.filter(t => t.pruningTypes?.some(p => p.includes('CORTE'))).length };
+            }, [logs, journeyElapsed]);
+
+            const finalizeAndClearAll = async () => {
+                await idbKeyval.clear();
+                localStorage.clear();
+                window.location.reload();
+            };
+
             // TELA INICIAL
             if (view === 'setup' || view === 'edit_team') {
                 return (
