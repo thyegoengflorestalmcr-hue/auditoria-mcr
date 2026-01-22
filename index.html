@@ -47,8 +47,8 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
 
-        // --- CONFIGURAÇÃO SUPABASE ---
-        const SUPABASE_URL = "https://kqzxhrywfrtbyxwgwggsd.supabase.co";
+        // --- CONFIGURAÇÃO SUPABASE (CORRIGIDA) ---
+        const SUPABASE_URL = "https://kqzxhrywfrtbyxwgvggsd.supabase.co"; // URL Corrigida (vggsd)
         const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtxenhyeXdmcnRieXh3Z3ZnZ3NkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg2NjE4NjksImV4cCI6MjA4NDIzNzg2OX0.2XCcj9dFQqMHooUmF1D1Yuy9CvKPvabMO0Ai3A_Mto8";
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -189,7 +189,7 @@
                 return () => navigator.geolocation.clearWatch(watchId);
             }, []);
 
-            // --- MELHORIA: METADADOS EXIF ---
+            // --- METADADOS EXIF ---
             const getMetadata = (file) => {
                 return new Promise((resolve) => {
                     EXIF.getData(file, function() {
@@ -221,18 +221,52 @@
                 } catch (e) { return null; }
             };
 
-            // --- MELHORIA: SYNC SUPABASE ---
+            // --- SYNC SUPABASE OTIMIZADO (PARA NÃO TRAVAR) ---
             const pushToSupabase = async (logItem) => {
                 try {
+                    // 1. Prepara o pacote com todas as informações (incluindo fotos para testar)
+                    const dadosParaEnviar = {
+                        operador_encarregado: shift.operador,
+                        rt_responsavel: shift.rt,
+                        tst_responsavel: shift.tst,
+                        data_referencia: shift.journeyDate,
+                        sincronizado_em: new Date().toISOString(),
+                        dados_tecnicos: {
+                            ...logItem, // Fotos e Dados do Formulário
+                            placa: shift.placa,
+                            equipe: shift.auxiliares,
+                            shift_data: shift
+                        }
+                    };
+
+                    // 2. Proteção "Anti-Crash": Verifica tamanho do pacote
+                    const payloadString = JSON.stringify(dadosParaEnviar);
+                    const tamanhoMB = payloadString.length / (1024 * 1024);
+
+                    console.log(`Tentando enviar: ${tamanhoMB.toFixed(2)} MB`);
+
+                    // Se for maior que 5.5MB, remove fotos SOMENTE DO PACOTE DE NUVEM
+                    // (No celular/ZIP as fotos continuam intactas)
+                    if (tamanhoMB > 5.5) {
+                        console.warn("Pacote grande demais para envio instantâneo. Removendo imagens do envio Cloud.");
+                        delete dadosParaEnviar.dados_tecnicos.photosBefore;
+                        delete dadosParaEnviar.dados_tecnicos.photosAfter;
+                        delete dadosParaEnviar.dados_tecnicos.photoProblem;
+                        delete dadosParaEnviar.dados_tecnicos.tempPausePhoto;
+                    }
+
+                    // 3. Envia para a tabela 'registros_poda' (A preparada com PostGIS)
                     const { error } = await supabaseClient
-                        .from('mcr_audit_logs')
-                        .insert([{ 
-                            ...logItem, 
-                            photosBefore: null, 
-                            photosAfter: null, 
-                            shift_context: { rt: shift.rt, operador: shift.operador, placa: shift.placa }
-                        }]);
-                } catch (e) { console.error(e); }
+                        .from('registros_poda')
+                        .insert([dadosParaEnviar]);
+                    
+                    if (error) {
+                        console.error("ERRO SUPABASE:", error);
+                        // Falha silenciosa para não parar a operação de campo
+                    } else {
+                        console.log("✅ SUCESSO! Dados sincronizados com Supabase.");
+                    }
+                } catch (e) { console.error("Erro de conexão/execução:", e); }
             };
 
             const stats = useMemo(() => {
