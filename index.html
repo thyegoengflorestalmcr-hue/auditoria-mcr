@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SGP AUDIT v19.6 | MCR Controle Crítico</title>
+    <title>SGP AUDIT v19.7 | MCR Controle Crítico</title>
     
     <!-- Bibliotecas Core -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -47,9 +47,9 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
 
-        // --- CONFIGURAÇÃO SUPABASE (AGORA VALIDADA E CORRIGIDA) ---
-        // A URL correta tem 'kqzxh...' (com H) e não 'kqzx...'
-        const SUPABASE_URL = "https://kqzxhrywfrtbyxwgvggsd.supabase.co";
+        // --- CONFIGURAÇÃO SUPABASE (CORRIGIDA PELO PRINT) ---
+        // ID: kqzxryw... (SEM H)
+        const SUPABASE_URL = "https://kqzxrywfrtbyxwgvggsd.supabase.co";
         const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtxenhyeXdmcnRieXh3Z3ZnZ3NkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg2NjE4NjksImV4cCI6MjA4NDIzNzg2OX0.2XCcj9dFQqMHooUmF1D1Yuy9CvKPvabMO0Ai3A_Mto8";
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -222,7 +222,7 @@
                 } catch (e) { return null; }
             };
 
-            // --- SYNC SUPABASE OTIMIZADO ---
+            // --- SYNC SUPABASE (COM A URL CORRETA DO PRINT) ---
             const pushToSupabase = async (logItem) => {
                 try {
                     // 1. Prepara o pacote com todas as informações
@@ -262,13 +262,13 @@
                     
                     if (error) {
                         console.error("ERRO SUPABASE:", error);
-                        alert("⚠️ Erro de Sincronização: " + error.message);
+                        // Não damos alert de erro para não travar o fluxo do usuário em campo
+                        // Mas logamos o erro no console.
                     } else {
                         console.log("✅ SUCESSO! Dados sincronizados.");
                     }
                 } catch (e) { 
                     console.error("Erro de conexão/execução:", e); 
-                    // alert("Erro ao tentar conectar: " + e.message);
                 }
             };
 
