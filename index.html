@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SGP AUDIT v19.7 | MCR Controle Crítico</title>
+    <title>SGP AUDIT v19.9 | MCR Controle Crítico</title>
     
     <!-- Bibliotecas Core -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -47,13 +47,10 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
 
-        // --- CONFIGURAÇÃO SUPABASE (CORRIGIDA PELO PRINT) ---
-        // ID: kqzxryw... (SEM H)
+        // --- CONFIGURAÇÃO SUPABASE (CORRETA) ---
         const SUPABASE_URL = "https://kqzxrywfrtbyxwgvggsd.supabase.co";
         const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtxenhyeXdmcnRieXh3Z3ZnZ3NkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg2NjE4NjksImV4cCI6MjA4NDIzNzg2OX0.2XCcj9dFQqMHooUmF1D1Yuy9CvKPvabMO0Ai3A_Mto8";
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-
-        const TARGET_EMAIL = "thyego.engflorestalmcr@gmail.com";
 
         const TIPOS_PODA_DATA = [
             { id: "Poda de Levantamento" }, { id: "Poda de Limpeza" }, { id: "Poda de Adequação" }, 
@@ -149,7 +146,11 @@
                         if (s) setShift(s);
                         if (a) {
                             setActiveAction(a);
-                            if (a.startTime) setElapsed(Math.floor((Date.now() - a.startTime) / 1000));
+                            if (a.executionStartTime) {
+                                setElapsed(Math.floor((Date.now() - a.executionStartTime) / 1000));
+                            } else if (a.startTime) {
+                                setElapsed(Math.floor((Date.now() - a.startTime) / 1000));
+                            }
                         }
                         setLogs(l);
                         setView(s?.active ? 'dashboard' : 'setup');
@@ -164,8 +165,12 @@
                         const now = shift.journeyEndTime || Date.now();
                         setJourneyElapsed(Math.floor((now - shift.journeyStartTime) / 1000));
                     }
-                    if (activeAction?.startTime) {
-                        setElapsed(Math.floor((Date.now() - activeAction.startTime) / 1000));
+                    if (activeAction) {
+                        const baseTime = activeAction.executionStartTime || activeAction.startTime;
+                        if (baseTime) {
+                            setElapsed(Math.floor((Date.now() - baseTime) / 1000));
+                        }
+                        
                         if (activeAction.isPaused && activeAction.pauseStartTime) {
                             setPauseElapsed(Math.floor((Date.now() - activeAction.pauseStartTime) / 1000));
                         }
@@ -222,10 +227,9 @@
                 } catch (e) { return null; }
             };
 
-            // --- SYNC SUPABASE (COM A URL CORRETA DO PRINT) ---
+            // --- SYNC SUPABASE ---
             const pushToSupabase = async (logItem) => {
                 try {
-                    // 1. Prepara o pacote com todas as informações
                     const dadosParaEnviar = {
                         operador_encarregado: shift.operador,
                         rt_responsavel: shift.rt,
@@ -240,50 +244,55 @@
                         }
                     };
 
-                    // 2. Verifica tamanho (Proteção Anti-Travamento)
                     const payloadString = JSON.stringify(dadosParaEnviar);
                     const tamanhoMB = payloadString.length / (1024 * 1024);
-
                     console.log(`Tamanho do pacote: ${tamanhoMB.toFixed(2)} MB`);
 
                     if (tamanhoMB > 5.5) {
                         console.warn("Pacote > 5.5MB. Removendo imagens do envio Cloud.");
-                        alert("⚠️ AVISO: As fotos são muito grandes para envio instantâneo. Elas estarão no ZIP final, mas o registro online será apenas texto.");
+                        alert("⚠️ AVISO: Fotos grandes demais para envio online. Salvas apenas no ZIP.");
                         delete dadosParaEnviar.dados_tecnicos.photosBefore;
                         delete dadosParaEnviar.dados_tecnicos.photosAfter;
                         delete dadosParaEnviar.dados_tecnicos.photoProblem;
                         delete dadosParaEnviar.dados_tecnicos.tempPausePhoto;
                     }
 
-                    // 3. Envia para a tabela 'registros_poda'
                     const { error } = await supabaseClient
                         .from('registros_poda')
                         .insert([dadosParaEnviar]);
                     
-                    if (error) {
-                        console.error("ERRO SUPABASE:", error);
-                        // Não damos alert de erro para não travar o fluxo do usuário em campo
-                        // Mas logamos o erro no console.
-                    } else {
-                        console.log("✅ SUCESSO! Dados sincronizados.");
-                    }
-                } catch (e) { 
-                    console.error("Erro de conexão/execução:", e); 
-                }
+                    if (error) console.error("ERRO SUPABASE:", error);
+                    else console.log("✅ SUCESSO! Dados sincronizados.");
+                } catch (e) { console.error(e); }
             };
 
+            // --- CÁLCULO DE ESTATÍSTICAS (PAGAMENTO = FORM + SERRA) ---
             const stats = useMemo(() => {
                 const treeLogs = logs.filter(l => l.type === 'tree' && l.status !== 'IMPEDIDO');
+                
+                // Tempo digitando
                 const totalFormSec = treeLogs.reduce((acc, log) => acc + (log.formDurationSec || 0), 0);
-                const totalManejoPuroSec = treeLogs.reduce((acc, log) => {
-                    const bruteExec = log.executionDurationSec || 0;
-                    const pausedInTree = log.totalPausedSeconds || 0;
-                    return acc + (bruteExec - pausedInTree);
-                }, 0);
+                
+                // Tempo cortando (descontando pausas)
+                const totalManejoPuroSec = treeLogs.reduce((acc, log) => acc + (log.effectiveDurationSec || 0), 0);
+                
+                // HM EFETIVO = Form + Manejo (Critério de Pagamento)
                 const hmTotalEfetivo = totalFormSec + totalManejoPuroSec;
+                
                 const journeySec = journeyElapsed;
+                // Logística/Ocioso = Jornada Total - (Tempo Pago)
                 const logisticSec = Math.max(0, journeySec - hmTotalEfetivo);
-                return { work: hmTotalEfetivo, preparo: totalFormSec, manejo: totalManejoPuroSec, logistics: logisticSec, journey: journeySec, totalTrees: logs.filter(l => l.type === 'tree').length, treesPruned: treeLogs.filter(t => t.pruningTypes?.some(p => !p.includes('CORTE'))).length, treesSuppressed: treeLogs.filter(t => t.pruningTypes?.some(p => p.includes('CORTE'))).length };
+                
+                return { 
+                    work: hmTotalEfetivo, // SOMA TOTAL PAGA
+                    preparo: totalFormSec, 
+                    manejo: totalManejoPuroSec, 
+                    logistics: logisticSec, // SOMA NÃO PAGA (Deslocamento/Ocio)
+                    journey: journeySec, 
+                    totalTrees: logs.filter(l => l.type === 'tree').length, 
+                    treesPruned: treeLogs.filter(t => t.pruningTypes?.some(p => !p.includes('CORTE'))).length, 
+                    treesSuppressed: treeLogs.filter(t => t.pruningTypes?.some(p => p.includes('CORTE'))).length 
+                };
             }, [logs, journeyElapsed]);
 
             const finalizeAndClearAll = async () => {
@@ -338,7 +347,7 @@
                         <div className="bg-slate-900 p-5 rounded-3xl text-white shadow-2xl mb-4 text-center border-b-4 border-audit-500"><p className="text-[10px] font-black opacity-50 uppercase mb-1 tracking-widest leading-none">Jornada Total Diária</p><p className="text-4xl font-black font-mono text-audit-500 tracking-tighter leading-none">{formatDuration(stats.journey)}</p></div>
                         <div className="grid grid-cols-2 gap-3 mb-4">
                             <div className="bg-audit-600 p-4 rounded-3xl text-white shadow-xl"><p className="text-[9px] font-bold opacity-70 uppercase mb-1">Hm Total Efetivo</p><p className="text-2xl font-black leading-none">{formatDuration(stats.work)}</p></div>
-                            <div className="bg-slate-800 p-4 rounded-3xl text-white shadow-xl border-b-4 border-amber-500"><p className="text-[9px] font-bold opacity-70 uppercase mb-1">Logística / Pausas</p><p className="text-2xl font-black leading-none">{formatDuration(stats.logistics)}</p></div>
+                            <div className="bg-slate-800 p-4 rounded-3xl text-white shadow-xl border-b-4 border-amber-500"><p className="text-[9px] font-bold opacity-70 uppercase mb-1">Logística / Ocioso</p><p className="text-2xl font-black leading-none">{formatDuration(stats.logistics)}</p></div>
                         </div>
                         <div className="grid grid-cols-3 gap-2 mb-6 bg-white p-4 rounded-3xl border border-slate-100 shadow-sm text-center">
                             <div className="border-r border-slate-100"><p className="text-[8px] font-black text-slate-400 uppercase mb-1">Total</p><p className="text-xl font-black text-slate-800">{stats.totalTrees}</p></div>
@@ -395,7 +404,18 @@
                             {activeAction.status === 'IMPEDIDO' ? (
                                 <button disabled={!activeAction.species || !activeAction.problemReport || !activeAction.photoProblem} onClick={async () => { const log = { ...activeAction, endTime: Date.now(), status: 'IMPEDIDO', coords: `${gps.lat},${gps.lng}`, timestamp: new Date().toISOString() }; setLogs([log, ...logs]); await pushToSupabase(log); setActiveAction(null); setView('dashboard'); }} className="w-full mt-4 py-6 rounded-3xl bg-red-600 text-white font-black uppercase text-xl shadow-lg">Registrar Impedimento</button>
                             ) : (
-                                <button disabled={!activeAction.species || !activeAction.cap || !activeAction.height || !activeAction.pruningTypes?.length || (isOsRequired && !activeAction.osId) || activeAction.photosBefore?.filter(p=>p).length < 3} onClick={() => { const now = Date.now(); setActiveAction({ ...activeAction, type: 'tree', executionStartTime: now, formDurationSec: Math.floor((now - activeAction.startTime) / 1000), desc: `${activeAction.species} [${activeAction.osId || 'ROTINA'}]`, treeCoords: `${gps.lat},${gps.lng}` }); setView('active_service'); }} className="w-full mt-4 py-6 rounded-3xl bg-audit-600 text-white font-black uppercase text-xl shadow-lg">Iniciar Manejo</button>
+                                <button disabled={!activeAction.species || !activeAction.cap || !activeAction.height || !activeAction.pruningTypes?.length || (isOsRequired && !activeAction.osId) || activeAction.photosBefore?.filter(p=>p).length < 3} onClick={() => { 
+                                    const now = Date.now(); 
+                                    setActiveAction({ 
+                                        ...activeAction, 
+                                        type: 'tree', 
+                                        executionStartTime: now, 
+                                        formDurationSec: Math.floor((now - activeAction.startTime) / 1000), 
+                                        desc: `${activeAction.species} [${activeAction.osId || 'ROTINA'}]`, 
+                                        treeCoords: `${gps.lat},${gps.lng}` 
+                                    }); 
+                                    setView('active_service'); 
+                                }} className="w-full mt-4 py-6 rounded-3xl bg-audit-600 text-white font-black uppercase text-xl shadow-lg">Iniciar Manejo</button>
                             )}
                         </Card>
                     </div>
@@ -415,7 +435,26 @@
                                 <div className="grid grid-cols-3 gap-2 mb-2">
                                     {[0,1,2].map(i => <PhotoUpload key={i} label={`F${i+1}`} preview={activeAction.photosAfter?.[i]} onCapture={async f => { let list = [...activeAction.photosAfter]; list[i] = await processPhoto(f); setActiveAction({...activeAction, photosAfter: list}); }} />)}
                                 </div>
-                                <button disabled={activeAction.photosAfter?.filter(p=>p).length < 3} onClick={async () => { const now = Date.now(); const log = { ...activeAction, endTime: now, durationSec: Math.floor((now - activeAction.startTime) / 1000), effectiveDurationSec: Math.floor((now - activeAction.startTime) / 1000) - (activeAction.totalPausedSeconds || 0), coords: activeAction.treeCoords || `${gps.lat},${gps.lng}`, status: 'OK', timestamp: new Date().toISOString() }; setLogs([log, ...logs]); await pushToSupabase(log); setActiveAction(null); setView('dashboard'); }} className="w-full mt-4 py-5 rounded-2xl bg-audit-900 text-white font-black uppercase shadow-xl">Finalizar e Salvar</button>
+                                <button disabled={activeAction.photosAfter?.filter(p=>p).length < 3} onClick={async () => { 
+                                    const now = Date.now(); 
+                                    const execDuration = Math.floor((now - activeAction.executionStartTime) / 1000);
+                                    const effectiveDuration = execDuration - (activeAction.totalPausedSeconds || 0);
+                                    
+                                    const log = { 
+                                        ...activeAction, 
+                                        endTime: now, 
+                                        durationSec: Math.floor((now - activeAction.startTime) / 1000), 
+                                        executionDurationSec: execDuration, 
+                                        effectiveDurationSec: effectiveDuration, 
+                                        coords: activeAction.treeCoords || `${gps.lat},${gps.lng}`, 
+                                        status: 'OK', 
+                                        timestamp: new Date().toISOString() 
+                                    }; 
+                                    setLogs([log, ...logs]); 
+                                    await pushToSupabase(log); 
+                                    setActiveAction(null); 
+                                    setView('dashboard'); 
+                                }} className="w-full mt-4 py-5 rounded-2xl bg-audit-900 text-white font-black uppercase shadow-xl">Finalizar e Salvar</button>
                             </Card>
                         </div>
                     </div>
