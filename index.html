@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SGP AUDIT v19.9 | MCR Controle Crítico</title>
+    <title>SGP AUDIT v20.0 | MCR Controle Crítico</title>
     
     <!-- Bibliotecas Core -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -47,7 +47,7 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
 
-        // --- CONFIGURAÇÃO SUPABASE (CORRETA) ---
+        // --- CONFIGURAÇÃO SUPABASE ---
         const SUPABASE_URL = "https://kqzxrywfrtbyxwgvggsd.supabase.co";
         const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtxenhyeXdmcnRieXh3Z3ZnZ3NkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg2NjE4NjksImV4cCI6MjA4NDIzNzg2OX0.2XCcj9dFQqMHooUmF1D1Yuy9CvKPvabMO0Ai3A_Mto8";
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -195,7 +195,6 @@
                 return () => navigator.geolocation.clearWatch(watchId);
             }, []);
 
-            // --- METADADOS EXIF ---
             const getMetadata = (file) => {
                 return new Promise((resolve) => {
                     EXIF.getData(file, function() {
@@ -246,11 +245,8 @@
 
                     const payloadString = JSON.stringify(dadosParaEnviar);
                     const tamanhoMB = payloadString.length / (1024 * 1024);
-                    console.log(`Tamanho do pacote: ${tamanhoMB.toFixed(2)} MB`);
-
+                    
                     if (tamanhoMB > 5.5) {
-                        console.warn("Pacote > 5.5MB. Removendo imagens do envio Cloud.");
-                        alert("⚠️ AVISO: Fotos grandes demais para envio online. Salvas apenas no ZIP.");
                         delete dadosParaEnviar.dados_tecnicos.photosBefore;
                         delete dadosParaEnviar.dados_tecnicos.photosAfter;
                         delete dadosParaEnviar.dados_tecnicos.photoProblem;
@@ -262,32 +258,23 @@
                         .insert([dadosParaEnviar]);
                     
                     if (error) console.error("ERRO SUPABASE:", error);
-                    else console.log("✅ SUCESSO! Dados sincronizados.");
                 } catch (e) { console.error(e); }
             };
 
-            // --- CÁLCULO DE ESTATÍSTICAS (PAGAMENTO = FORM + SERRA) ---
+            // --- ESTATÍSTICAS ---
             const stats = useMemo(() => {
                 const treeLogs = logs.filter(l => l.type === 'tree' && l.status !== 'IMPEDIDO');
-                
-                // Tempo digitando
                 const totalFormSec = treeLogs.reduce((acc, log) => acc + (log.formDurationSec || 0), 0);
-                
-                // Tempo cortando (descontando pausas)
                 const totalManejoPuroSec = treeLogs.reduce((acc, log) => acc + (log.effectiveDurationSec || 0), 0);
-                
-                // HM EFETIVO = Form + Manejo (Critério de Pagamento)
                 const hmTotalEfetivo = totalFormSec + totalManejoPuroSec;
-                
                 const journeySec = journeyElapsed;
-                // Logística/Ocioso = Jornada Total - (Tempo Pago)
                 const logisticSec = Math.max(0, journeySec - hmTotalEfetivo);
                 
                 return { 
-                    work: hmTotalEfetivo, // SOMA TOTAL PAGA
+                    work: hmTotalEfetivo, 
                     preparo: totalFormSec, 
                     manejo: totalManejoPuroSec, 
-                    logistics: logisticSec, // SOMA NÃO PAGA (Deslocamento/Ocio)
+                    logistics: logisticSec, 
                     journey: journeySec, 
                     totalTrees: logs.filter(l => l.type === 'tree').length, 
                     treesPruned: treeLogs.filter(t => t.pruningTypes?.some(p => !p.includes('CORTE'))).length, 
@@ -517,13 +504,23 @@
                                     l.photosBefore?.forEach((p, i) => { if(p) imgs.file(`ARV_${idx}_ANTES_${i+1}.jpg`, p.base64.split(',')[1], {base64: true}) });
                                     l.photosAfter?.forEach((p, i) => { if(p) imgs.file(`ARV_${idx}_DEPOIS_${i+1}.jpg`, p.base64.split(',')[1], {base64: true}) });
                                 });
-                                // --- MELHORIA: ZIP SEM CRIPTOGRAFIA ---
                                 const blob = await zip.generateAsync({type:"blob"});
-                                const fileName = `RAD_MCR_${new Date().toISOString().slice(0,10)}.zip`;
-                                const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = fileName; a.click(); 
+                                
+                                // --- UPLOAD PARA SUPABASE STORAGE ---
+                                try {
+                                    const fileName = `Backup_${new Date().toISOString().replace(/[:.]/g, '-')}.zip`;
+                                    await supabaseClient.storage.from('backups_zip').upload(fileName, blob);
+                                    console.log("Backup na nuvem realizado!");
+                                } catch(err) { console.error("Erro no backup nuvem", err); }
+                                // ------------------------------------
+
+                                const a = document.createElement("a"); 
+                                a.href = URL.createObjectURL(blob); 
+                                a.download = `RAD_MCR_${new Date().toISOString().slice(0,10)}.zip`; 
+                                a.click(); 
                                 await finalizeAndClearAll(); 
                             } catch(e) { alert("Erro: " + e.message); } finally { setIsExporting(false); }
-                        }} className="w-full py-6 rounded-3xl bg-audit-600 text-white font-black text-xl shadow-xl mt-2 uppercase flex items-center justify-center gap-3"><i className={isExporting ? "fas fa-spinner fa-spin" : "fas fa-download"}></i> {isExporting ? "GERANDO..." : "BAIXAR ZIP DIRETO!"}</button>
+                        }} className="w-full py-6 rounded-3xl bg-audit-600 text-white font-black text-xl shadow-xl mt-2 uppercase flex items-center justify-center gap-3"><i className={isExporting ? "fas fa-spinner fa-spin" : "fas fa-download"}></i> {isExporting ? "GERANDO E ENVIANDO..." : "BAIXAR ZIP"}</button>
                     <button onClick={()=>setView('dashboard')} className="mt-8 text-slate-300 font-black uppercase text-[10px] underline">Voltar</button>
                 </div>
             );
