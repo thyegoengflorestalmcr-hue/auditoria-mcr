@@ -1,20 +1,20 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SGP AUDIT v20.0 | MCR Controle Crítico</title>
-    
-    <!-- Bibliotecas Core -->
+    <title>RAD PODA v21.0 OFICIAL | MCR Sistema Completo</title>
+
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- Motores de Resiliência, Auditoria e Metadados -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/idb-keyval@6/dist/umd.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/browser-image-compression@2.0.2/dist/browser-image-compression.js"></script>
+    <script
+        src="https://cdn.jsdelivr.net/npm/browser-image-compression@2.0.2/dist/browser-image-compression.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/exif-js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -27,33 +27,88 @@
         }
     </script>
     <style>
-        body { background-color: #f8fafc; font-family: 'Inter', -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; overflow-x: hidden; }
-        .timer-glow { text-shadow: 0 0 15px rgba(5, 150, 105, 0.3); }
-        .pause-glow { text-shadow: 0 0 20px rgba(245, 158, 11, 0.4); }
-        input:focus, select:focus, textarea:focus { border-color: #059669; outline: none; ring: 2px; ring-color: rgba(5, 150, 105, 0.2); }
-        .btn-active:active { transform: scale(0.97); transition: 0.1s; }
-        .screen-fade { animation: fadeIn 0.2s ease-out; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
-        .modal-overlay { background-color: rgba(0, 0, 0, 0.7); backdrop-filter: blur(4px); }
-        input, textarea { text-transform: uppercase; }
-        input::placeholder, textarea::placeholder { text-transform: none; }
-        .no-scrollbar::-webkit-scrollbar { display: none; }
-        .fit-timer { font-size: clamp(3rem, 15vw, 6rem); }
+        body {
+            background-color: #f8fafc;
+            font-family: 'Inter', -apple-system, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+            overflow-x: hidden;
+        }
+
+        .timer-glow {
+            text-shadow: 0 0 15px rgba(5, 150, 105, 0.3);
+        }
+
+        .pause-glow {
+            text-shadow: 0 0 20px rgba(245, 158, 11, 0.4);
+        }
+
+        input:focus,
+        select:focus,
+        textarea:focus {
+            border-color: #059669;
+            outline: none;
+            ring: 2px;
+            ring-color: rgba(5, 150, 105, 0.2);
+        }
+
+        .btn-active:active {
+            transform: scale(0.97);
+            transition: 0.1s;
+        }
+
+        .screen-fade {
+            animation: fadeIn 0.2s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(5px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .modal-overlay {
+            background-color: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(4px);
+        }
+
+        input,
+        textarea {
+            text-transform: uppercase;
+        }
+
+        input::placeholder,
+        textarea::placeholder {
+            text-transform: none;
+        }
+
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+
+        .fit-timer {
+            font-size: clamp(3rem, 15vw, 6rem);
+        }
     </style>
 </head>
+
 <body>
     <div id="root"></div>
 
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
 
-        // --- CONFIGURAÇÃO SUPABASE ---
         const SUPABASE_URL = "https://kqzxrywfrtbyxwgvggsd.supabase.co";
         const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtxenhyeXdmcnRieXh3Z3ZnZ3NkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg2NjE4NjksImV4cCI6MjA4NDIzNzg2OX0.2XCcj9dFQqMHooUmF1D1Yuy9CvKPvabMO0Ai3A_Mto8";
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
         const TIPOS_PODA_DATA = [
-            { id: "Poda de Levantamento" }, { id: "Poda de Limpeza" }, { id: "Poda de Adequação" }, 
+            { id: "Poda de Levantamento" }, { id: "Poda de Limpeza" }, { id: "Poda de Adequação" },
             { id: "Poda Estrutural" }, { id: "Poda de Segurança" }, { id: "Poda Emergencial" }, { id: "CORTE TOTAL (SUPRESSÃO)" }
         ];
 
@@ -65,38 +120,44 @@
         ];
 
         const LISTA_ESPECIES = [
-            "Araucária (Pinheiro-do-paraná) [AMEAÇADA / IMUNE]", "Cedro [AMEAÇADA]", "Imbuia [AMEAÇADA / IMUNE]", 
+            "Araucária (Pinheiro-do-paraná) [AMEAÇADA / IMUNE]", "Cedro [AMEAÇADA]", "Imbuia [AMEAÇADA / IMUNE]",
             "Peroba-rosa [AMEAÇADA]", "Canela-preta [AMEAÇADA]", "Jacarandá-da-bahia [AMEAÇADA]", "Pau-brasil [AMEAÇADA]",
-            "Xaxim [AMEAÇADA / IMUNE]", "Figueira-branca [IMUNE]", "NÃO IDENTIFICADA", "DESCONHECIDA", "Abacateiro", 
-            "Abacaxi-de-anta", "Acacia", "Acacia-negra", "Açaí", "Açoita-cavalo", "Alecrim", "Alecrim-de-campinas", 
-            "Alfeneiro", "Algodoeiro", "Amapá", "Amendoim-bravo", "Angico", "Angico-branco", "Angico-vermelho", 
-            "Araticum", "Aroeira", "Aroeira-mansa", "Aroeira-pimenteira", "Aroeira-preta", "Aroeira-salsa", 
-            "Aroeira-vermelha", "Arvore-de-espeto", "Baguaçu", "Bambu", "Bauhinia", "Bicuíba", "Boleira", 
-            "Bracatinga", "Braúna", "Buriti", "Cabreúva", "Cafezeiro", "Caixeta", "Cajueiro", "Cambará", "Camboatá", 
-            "Canafístula", "Canela", "Canela-amarela", "Canela-batalha", "Canela-fogo", "Canela-guaicá", 
-            "Canela-lageana", "Canjerana", "Capororoca", "Caroba", "Carvalho", "Casca-d'anta", "Castanha-do-maranhão", 
-            "Casuarina", "Cedrinho", "Cerejeira", "Chapéu-de-napoleão", "Cinamomo", "Cipó-mil-homens", "Coqueiro", 
-            "Corticeira", "Cumaru", "Cuveiro", "Embaúba", "Erva-mate", "Eucalipto", "Extremosa", "Ficus", 
-            "Ficus-benjamina", "Figueira", "Flamboyant", "Gameleira", "Goiabeira", "Grápia", "Grevillea", 
-            "Guabiroba", "Guaçatonga", "Guajuvira", "Guatambu", "Guatambu-branco", "Hovenia", "Ingá", "Ipê-amarelo", 
-            "Ipê-branco", "Ipê-rosa", "Ipê-roxo", "Ipê-tabaco", "Jabuticabeira", "Jabuticaba", "Jacarandá", "Jacarandá-mimoso", 
-            "Jacarandá-paulista", "Jaca", "Jamelão", "Jatobá", "Jequitibá", "Jerivá", "Leiteiro", "Ligustro", 
-            "Louro", "Louro-pardo", "Magnólia", "Mamica-de-cadela", "Mandioqueira", "Mangueira", "Marinheiro", 
-            "Mogno", "Monjoleiro", "Mulungu", "Murta", "Noz-pecã", "Oiti", "Oleo-balsamo", "Paineira", 
-            "Palmeira-imperial", "Palmeira-real", "Pata-de-vaca", "Pau-ferro", "Pau-marfim", "Pau-mulato", 
-            "Peroba", "Pinus", "Pitanga", "Platano", "Quaresmeira", "Resedá", "Sabiá", "Sagüeiro", "Sangra-d'água", 
-            "Sapucaia", "Sete-copas", "Sibipiruna", "Sucupira", "Tamarineiro", "Tarumã", "Tipuana", "Tucaneira", 
+            "Xaxim [AMEAÇADA / IMUNE]", "Figueira-branca [IMUNE]", "NÃO IDENTIFICADA", "DESCONHECIDA", "Abacateiro",
+            "Abacaxi-de-anta", "Acacia", "Acacia-negra", "Açaí", "Açoita-cavalo", "Alecrim", "Alecrim-de-campinas",
+            "Alfeneiro", "Algodoeiro", "Amapá", "Amendoim-bravo", "Angico", "Angico-branco", "Angico-vermelho",
+            "Araticum", "Aroeira", "Aroeira-mansa", "Aroeira-pimenteira", "Aroeira-preta", "Aroeira-salsa",
+            "Aroeira-vermelha", "Arvore-de-espeto", "Baguaçu", "Bambu", "Bauhinia", "Bicuíba", "Boleira",
+            "Bracatinga", "Braúna", "Buriti", "Cabreúva", "Cafezeiro", "Caixeta", "Cajueiro", "Cambará", "Camboatá",
+            "Canafístula", "Canela", "Canela-amarela", "Canela-batalha", "Canela-fogo", "Canela-guaicá",
+            "Canela-lageana", "Canjerana", "Capororoca", "Caroba", "Carvalho", "Casca-d'anta", "Castanha-do-maranhão",
+            "Casuarina", "Cedrinho", "Cerejeira", "Chapéu-de-napoleão", "Cinamomo", "Cipó-mil-homens", "Coqueiro",
+            "Corticeira", "Cumaru", "Cuveiro", "Embaúba", "Erva-mate", "Eucalipto", "Extremosa", "Ficus",
+            "Ficus-benjamina", "Figueira", "Flamboyant", "Gameleira", "Goiabeira", "Grápia", "Grevillea",
+            "Guabiroba", "Guaçatonga", "Guajuvira", "Guatambu", "Guatambu-branco", "Hovenia", "Ingá", "Ipê-amarelo",
+            "Ipê-branco", "Ipê-rosa", "Ipê-roxo", "Ipê-tabaco", "Jabuticabeira", "Jabuticaba", "Jacarandá", "Jacarandá-mimoso",
+            "Jacarandá-paulista", "Jaca", "Jamelão", "Jatobá", "Jequitibá", "Jerivá", "Leiteiro", "Ligustro",
+            "Louro", "Louro-pardo", "Magnólia", "Mamica-de-cadela", "Mandioqueira", "Mangueira", "Marinheiro",
+            "Mogno", "Monjoleiro", "Mulungu", "Murta", "Noz-pecã", "Oiti", "Oleo-balsamo", "Paineira",
+            "Palmeira-imperial", "Palmeira-real", "Pata-de-vaca", "Pau-ferro", "Pau-marfim", "Pau-mulato",
+            "Peroba", "Pinus", "Pitanga", "Platano", "Quaresmeira", "Resedá", "Sabiá", "Sagüeiro", "Sangra-d'água",
+            "Sapucaia", "Sete-copas", "Sibipiruna", "Sucupira", "Tamarineiro", "Tarumã", "Tipuana", "Tucaneira",
             "Uvaia", "Uva-do-japão", "Vassourão-branco"
         ].sort();
 
         const PAUSE_REASONS = ["Almoço / Refeição", "Chuva / Tempo Ruim", "Quebra de Equipamento", "Logística / Deslocamento", "Interferência de Munícipe", "Abastecimento", "Suspensão Rede (COPEL)", "Outros"];
+
+        // ✅ GERAR ID ÚNICO MD5
+        const generateTreeId = (species, cap, lat, lng) => {
+            const normalized = `${species.trim().toUpperCase()}_${parseFloat(cap).toFixed(1)}_${parseFloat(lat).toFixed(4)}_${parseFloat(lng).toFixed(4)}`;
+            return CryptoJS.MD5(normalized).toString().substring(0, 12).toUpperCase();
+        };
 
         const formatDuration = (totalSeconds) => {
             const s = Math.max(0, totalSeconds);
             const h = Math.floor(s / 3600);
             const m = Math.floor((s % 3600) / 60);
             const sec = s % 60;
-            return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:${sec.toString().padStart(2,'0')}`;
+            return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
         };
 
         const Card = ({ children, className = "" }) => (
@@ -109,7 +170,7 @@
             </label>
         );
 
-        const PhotoUpload = ({ label, help, preview, onCapture, icon="fa-camera", fullWidth = false }) => (
+        const PhotoUpload = ({ label, help, preview, onCapture, icon = "fa-camera", fullWidth = false }) => (
             <label className={`relative ${fullWidth ? 'h-40' : 'h-28'} border-2 border-dashed rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer ${preview ? 'border-audit-500 bg-emerald-50' : 'border-slate-300 bg-slate-50'}`}>
                 {preview ? <img src={typeof preview === 'string' ? preview : preview.base64} className="absolute inset-0 w-full h-full object-cover rounded-xl" /> : (
                     <div className="text-center p-2">
@@ -124,25 +185,26 @@
 
         const App = () => {
             const [view, setView] = useState('loading');
-            const [shift, setShift] = useState({ 
-                rt: '', tst: '', operador: '', placa: '', auxiliares: [''], placaAux: '', 
-                foto_unificada: null, journeyStartTime: null, journeyEndTime: null, journeyDate: null 
+            const [shift, setShift] = useState({
+                rt: '', tst: '', operador: '', placa: '', auxiliares: [''], placaAux: '',
+                foto_unificada: null, journeyStartTime: null, journeyEndTime: null, journeyDate: null
             });
             const [activeAction, setActiveAction] = useState(null);
             const [logs, setLogs] = useState([]);
             const [gps, setGps] = useState({ lat: null, lng: null });
-            const [elapsed, setElapsed] = useState(0); 
+            const [elapsed, setElapsed] = useState(0);
             const [pauseElapsed, setPauseElapsed] = useState(0);
-            const [journeyElapsed, setJourneyElapsed] = useState(0); 
+            const [journeyElapsed, setJourneyElapsed] = useState(0);
             const [showEndConfirm, setShowEndConfirm] = useState(false);
             const [isExporting, setIsExporting] = useState(false);
+            const [downloadedBlob, setDownloadedBlob] = useState(null);
 
             useEffect(() => {
                 const load = async () => {
                     try {
-                        const s = await idbKeyval.get('mcr_shift_v18_final');
-                        const a = await idbKeyval.get('mcr_active_v18_final');
-                        const l = await idbKeyval.get('mcr_logs_v18_final') || [];
+                        const s = await idbKeyval.get('mcr_shift_v21_oficial');
+                        const a = await idbKeyval.get('mcr_active_v21_oficial');
+                        const l = await idbKeyval.get('mcr_logs_v21_oficial') || [];
                         if (s) setShift(s);
                         if (a) {
                             setActiveAction(a);
@@ -170,7 +232,7 @@
                         if (baseTime) {
                             setElapsed(Math.floor((Date.now() - baseTime) / 1000));
                         }
-                        
+
                         if (activeAction.isPaused && activeAction.pauseStartTime) {
                             setPauseElapsed(Math.floor((Date.now() - activeAction.pauseStartTime) / 1000));
                         }
@@ -180,10 +242,10 @@
             }, [activeAction, shift.active, shift.journeyStartTime, shift.journeyEndTime]);
 
             useEffect(() => {
-                if (shift?.active) idbKeyval.set('mcr_shift_v18_final', shift);
-                if (activeAction) idbKeyval.set('mcr_active_v18_final', activeAction);
-                else idbKeyval.del('mcr_active_v18_final');
-                idbKeyval.set('mcr_logs_v18_final', logs);
+                if (shift?.active) idbKeyval.set('mcr_shift_v21_oficial', shift);
+                if (activeAction) idbKeyval.set('mcr_active_v21_oficial', activeAction);
+                else idbKeyval.del('mcr_active_v21_oficial');
+                idbKeyval.set('mcr_logs_v21_oficial', logs);
             }, [shift, activeAction, logs]);
 
             useEffect(() => {
@@ -197,11 +259,11 @@
 
             const getMetadata = (file) => {
                 return new Promise((resolve) => {
-                    EXIF.getData(file, function() {
+                    EXIF.getData(file, function () {
                         const allTags = EXIF.getAllTags(this);
                         const convertDMSToDD = (dms, ref) => {
                             if (!dms) return null;
-                            let dd = dms[0] + dms[1]/60 + dms[2]/3600;
+                            let dd = dms[0] + dms[1] / 60 + dms[2] / 3600;
                             if (ref === "S" || ref === "W") dd = dd * -1;
                             return dd.toFixed(6);
                         };
@@ -226,7 +288,6 @@
                 } catch (e) { return null; }
             };
 
-            // --- SYNC SUPABASE ---
             const pushToSupabase = async (logItem) => {
                 try {
                     const dadosParaEnviar = {
@@ -236,7 +297,7 @@
                         data_referencia: shift.journeyDate,
                         sincronizado_em: new Date().toISOString(),
                         dados_tecnicos: {
-                            ...logItem, 
+                            ...logItem,
                             placa: shift.placa,
                             equipe: shift.auxiliares,
                             shift_data: shift
@@ -245,7 +306,7 @@
 
                     const payloadString = JSON.stringify(dadosParaEnviar);
                     const tamanhoMB = payloadString.length / (1024 * 1024);
-                    
+
                     if (tamanhoMB > 5.5) {
                         delete dadosParaEnviar.dados_tecnicos.photosBefore;
                         delete dadosParaEnviar.dados_tecnicos.photosAfter;
@@ -256,12 +317,11 @@
                     const { error } = await supabaseClient
                         .from('registros_poda')
                         .insert([dadosParaEnviar]);
-                    
+
                     if (error) console.error("ERRO SUPABASE:", error);
                 } catch (e) { console.error(e); }
             };
 
-            // --- ESTATÍSTICAS ---
             const stats = useMemo(() => {
                 const treeLogs = logs.filter(l => l.type === 'tree' && l.status !== 'IMPEDIDO');
                 const totalFormSec = treeLogs.reduce((acc, log) => acc + (log.formDurationSec || 0), 0);
@@ -269,16 +329,16 @@
                 const hmTotalEfetivo = totalFormSec + totalManejoPuroSec;
                 const journeySec = journeyElapsed;
                 const logisticSec = Math.max(0, journeySec - hmTotalEfetivo);
-                
-                return { 
-                    work: hmTotalEfetivo, 
-                    preparo: totalFormSec, 
-                    manejo: totalManejoPuroSec, 
-                    logistics: logisticSec, 
-                    journey: journeySec, 
-                    totalTrees: logs.filter(l => l.type === 'tree').length, 
-                    treesPruned: treeLogs.filter(t => t.pruningTypes?.some(p => !p.includes('CORTE'))).length, 
-                    treesSuppressed: treeLogs.filter(t => t.pruningTypes?.some(p => p.includes('CORTE'))).length 
+
+                return {
+                    work: hmTotalEfetivo,
+                    preparo: totalFormSec,
+                    manejo: totalManejoPuroSec,
+                    logistics: logisticSec,
+                    journey: journeySec,
+                    totalTrees: logs.filter(l => l.type === 'tree').length,
+                    treesPruned: treeLogs.filter(t => t.pruningTypes?.some(p => !p.includes('CORTE'))).length,
+                    treesSuppressed: treeLogs.filter(t => t.pruningTypes?.some(p => p.includes('CORTE'))).length
                 };
             }, [logs, journeyElapsed]);
 
@@ -288,46 +348,46 @@
                 window.location.reload();
             };
 
-            // TELA INICIAL
+            // TELAS (MANTENDO TODA LÓGICA ORIGINAL)
+
             if (view === 'setup' || view === 'edit_team') {
                 return (
                     <div className="p-6 screen-fade pb-20 no-scrollbar">
-                        <div className="text-center mb-8"><i className="fas fa-helmet-safety text-audit-600 text-5xl mb-4"></i><h1 className="text-2xl font-black text-slate-800 uppercase leading-none">Abertura de Turno</h1></div>
+                        <div className="text-center mb-8"><i className="fas fa-helmet-safety text-audit-600 text-5xl mb-4"></i><h1 className="text-2xl font-black text-slate-800 uppercase leading-none">Abertura de Turno v21</h1></div>
                         <Card>
                             <Label required>Equipe Técnica</Label>
                             <div className="space-y-3">
-                                <input className="w-full p-4 border-2 rounded-2xl text-sm font-black uppercase" placeholder="Engenheiro Resp. (RT)" value={shift?.rt || ''} onChange={e => setShift({...shift, rt: e.target.value.toUpperCase()})} />
-                                <input className="w-full p-4 border-2 rounded-2xl text-sm font-black uppercase" placeholder="Téc. Segurança (TST)" value={shift?.tst || ''} onChange={e => setShift({...shift, tst: e.target.value.toUpperCase()})} />
+                                <input className="w-full p-4 border-2 rounded-2xl text-sm font-black uppercase" placeholder="Engenheiro Resp. (RT)" value={shift?.rt || ''} onChange={e => setShift({ ...shift, rt: e.target.value.toUpperCase() })} />
+                                <input className="w-full p-4 border-2 rounded-2xl text-sm font-black uppercase" placeholder="Téc. Segurança (TST)" value={shift?.tst || ''} onChange={e => setShift({ ...shift, tst: e.target.value.toUpperCase() })} />
                                 <div className="grid grid-cols-2 gap-2">
-                                    <input className="w-full p-4 border-2 rounded-2xl font-black text-sm uppercase" placeholder="Encarregado" value={shift?.operador || ''} onChange={e => setShift({...shift, operador: e.target.value.toUpperCase()})} />
-                                    <input className="w-full p-4 border-2 rounded-2xl font-black uppercase text-sm" placeholder="Placa Munk" value={shift?.placa || ''} onChange={e => setShift({...shift, placa: e.target.value.toUpperCase()})} />
+                                    <input className="w-full p-4 border-2 rounded-2xl font-black text-sm uppercase" placeholder="Encarregado" value={shift?.operador || ''} onChange={e => setShift({ ...shift, operador: e.target.value.toUpperCase() })} />
+                                    <input className="w-full p-4 border-2 rounded-2xl font-black uppercase text-sm" placeholder="Placa Munk" value={shift?.placa || ''} onChange={e => setShift({ ...shift, placa: e.target.value.toUpperCase() })} />
                                 </div>
                             </div>
                         </Card>
                         <Card>
-                            <div className="flex justify-between items-center mb-4"><Label required>Equipe de Apoio</Label><button onClick={() => setShift({...shift, auxiliares: [...(shift?.auxiliares || ['']), '']})} className="bg-audit-600 text-white text-[9px] px-3 py-1.5 rounded-xl font-black uppercase">+ ADD</button></div>
+                            <div className="flex justify-between items-center mb-4"><Label required>Equipe de Apoio</Label><button onClick={() => setShift({ ...shift, auxiliares: [...(shift?.auxiliares || ['']), ''] })} className="bg-audit-600 text-white text-[9px] px-3 py-1.5 rounded-xl font-black uppercase">+ ADD</button></div>
                             <div className="space-y-2 mb-4">
                                 {(shift?.auxiliares || ['']).map((aux, idx) => (
                                     <div key={idx} className="flex gap-2 items-center">
-                                        <input className="flex-1 p-4 border-2 rounded-2xl text-sm font-black uppercase" placeholder={`Auxiliar ${idx+1}`} value={aux} onChange={e => { let list = [...shift.auxiliares]; list[idx] = e.target.value.toUpperCase(); setShift({...shift, auxiliares: list}); }} />
-                                        {shift?.auxiliares?.length > 1 && <button onClick={() => { let list = [...shift.auxiliares]; list.splice(idx,1); setShift({...shift, auxiliares: list}); }} className="text-red-400 p-2"><i className="fas fa-trash"></i></button>}
+                                        <input className="flex-1 p-4 border-2 rounded-2xl text-sm font-black uppercase" placeholder={`Auxiliar ${idx + 1}`} value={aux} onChange={e => { let list = [...shift.auxiliares]; list[idx] = e.target.value.toUpperCase(); setShift({ ...shift, auxiliares: list }); }} />
+                                        {shift?.auxiliares?.length > 1 && <button onClick={() => { let list = [...shift.auxiliares]; list.splice(idx, 1); setShift({ ...shift, auxiliares: list }); }} className="text-red-400 p-2"><i className="fas fa-trash"></i></button>}
                                     </div>
                                 ))}
                             </div>
                             <Label>Logística de Apoio</Label>
-                            <input className="w-full p-4 border-2 rounded-2xl font-black uppercase text-sm" placeholder="Placa Veículo de Apoio" value={shift?.placaAux || ''} onChange={e => setShift({...shift, placaAux: e.target.value.toUpperCase()})} />
+                            <input className="w-full p-4 border-2 rounded-2xl font-black uppercase text-sm" placeholder="Placa Veículo de Apoio" value={shift?.placaAux || ''} onChange={e => setShift({ ...shift, placaAux: e.target.value.toUpperCase() })} />
                         </Card>
-                        <Card><Label required>DDS / Checklist</Label><PhotoUpload fullWidth label="DDS + CHECKLIST" preview={shift?.foto_unificada} onCapture={async f => setShift({...shift, foto_unificada: await processPhoto(f)})} /></Card>
-                        <button disabled={!shift?.rt || !shift?.operador || !shift?.placa || !shift?.foto_unificada || shift?.auxiliares?.some(a => !a)} onClick={() => { setShift({...shift, active: true, journeyStartTime: shift.journeyStartTime || Date.now(), journeyEndTime: null, journeyDate: shift.journeyDate || new Date().toLocaleDateString()}); setView('dashboard'); }} className="w-full py-6 rounded-3xl bg-audit-600 text-white font-black text-xl shadow-xl disabled:bg-slate-300 uppercase tracking-tighter">Iniciar Expediente</button>
+                        <Card><Label required>DDS / Checklist</Label><PhotoUpload fullWidth label="DDS + CHECKLIST" preview={shift?.foto_unificada} onCapture={async f => setShift({ ...shift, foto_unificada: await processPhoto(f) })} /></Card>
+                        <button disabled={!shift?.rt || !shift?.operador || !shift?.placa || !shift?.foto_unificada || shift?.auxiliares?.some(a => !a)} onClick={() => { setShift({ ...shift, active: true, journeyStartTime: shift.journeyStartTime || Date.now(), journeyEndTime: null, journeyDate: shift.journeyDate || new Date().toLocaleDateString() }); setView('dashboard'); }} className="w-full py-6 rounded-3xl bg-audit-600 text-white font-black text-xl shadow-xl disabled:bg-slate-300 uppercase tracking-tighter">Iniciar Expediente</button>
                     </div>
                 );
             }
 
-            // PAINEL (DASHBOARD)
             if (view === 'dashboard') return (
                 <div className="screen-fade pb-24 no-scrollbar min-h-screen">
                     <div className="p-4 border-b flex justify-between items-center bg-white sticky top-0 z-40 shadow-sm">
-                        <div className="flex items-center gap-3"><div className="w-10 h-10 bg-audit-600 rounded-full flex items-center justify-center text-white shadow-lg"><i className="fas fa-tree"></i></div><div><p className="text-[10px] font-black text-audit-600 uppercase leading-none">Gestão MCR</p><p className="font-black text-slate-800 text-sm truncate max-w-[140px] uppercase leading-none mt-1.5">{shift.operador}</p></div></div>
+                        <div className="flex items-center gap-3"><div className="w-10 h-10 bg-audit-600 rounded-full flex items-center justify-center text-white shadow-lg"><i className="fas fa-tree"></i></div><div><p className="text-[10px] font-black text-audit-600 uppercase leading-none">RAD PODA v21</p><p className="font-black text-slate-800 text-sm truncate max-w-[140px] uppercase leading-none mt-1.5">{shift.operador}</p></div></div>
                         <div className="text-right"><p className="text-[9px] font-black text-slate-400 uppercase leading-none">{shift.journeyDate}</p><button onClick={() => setView('edit_team')} className="bg-slate-100 p-1 px-2 mt-1.5 rounded-lg text-[8px] font-black uppercase text-slate-500">Alterar Equipe</button></div>
                     </div>
                     <div className="p-5">
@@ -349,60 +409,116 @@
                     <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/95 border-t z-40"><button onClick={() => setShowEndConfirm(true)} className="w-full bg-audit-900 text-white py-5 rounded-3xl font-black text-sm uppercase tracking-widest">Encerrar Turno</button></div>
                     {showEndConfirm && (
                         <div className="fixed inset-0 z-50 modal-overlay flex items-center justify-center p-6 screen-fade">
-                            <div className="bg-white w-full max-sm rounded-[2rem] p-8 shadow-2xl text-center"><i className="fas fa-warning text-audit-900 text-5xl mb-4"></i><h3 className="text-xl font-black text-slate-800 uppercase leading-none">Confirmar Fechamento?</h3><div className="mt-8 space-y-3"><button onClick={() => { setShift({...shift, journeyEndTime: Date.now()}); setShowEndConfirm(false); setView('end_day'); }} className="w-full bg-audit-900 text-white py-5 rounded-2xl font-black uppercase shadow-lg">Sim, Encerrar</button><button onClick={() => setShowEndConfirm(false)} className="w-full bg-slate-100 text-slate-400 py-4 rounded-2xl font-black uppercase text-[10px]">Voltar</button></div></div>
+                            <div className="bg-white w-full max-w-sm rounded-[2rem] p-8 shadow-2xl text-center"><i className="fas fa-warning text-audit-900 text-5xl mb-4"></i><h3 className="text-xl font-black text-slate-800 uppercase leading-none">Confirmar Fechamento?</h3><div className="mt-8 space-y-3"><button onClick={() => { setShift({ ...shift, journeyEndTime: Date.now() }); setShowEndConfirm(false); setView('end_day'); }} className="w-full bg-audit-900 text-white py-5 rounded-2xl font-black uppercase shadow-lg">Sim, Encerrar</button><button onClick={() => setShowEndConfirm(false)} className="w-full bg-slate-100 text-slate-400 py-4 rounded-2xl font-black uppercase text-[10px]">Voltar</button></div></div>
                         </div>
                     )}
                 </div>
             );
 
-            // PRONTUÁRIO
             if (view === 'tree_form') {
                 const isOsRequired = activeAction.demandSource && activeAction.demandSource !== 'manutencao';
+                const hasCorte = activeAction?.pruningTypes?.some(p => p.includes('CORTE'));
+                const hasPoda = activeAction?.pruningTypes?.some(p => !p.includes('CORTE'));
+
                 return (
                     <div className="p-6 screen-fade pb-20 no-scrollbar">
                         <div className="flex items-center gap-4 mb-6"><button onClick={() => { setActiveAction(null); setView('dashboard'); }} className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center"><i className="fas fa-arrow-left"></i></button><h2 className="text-xl font-black text-slate-800 uppercase italic leading-none">Prontuário</h2></div>
                         <Card>
                             <Label required>Origem da Demanda</Label>
-                            <select className="w-full p-4 border-2 rounded-2xl mb-4 font-black text-sm bg-white" value={activeAction.demandSource || ''} onChange={e => setActiveAction({...activeAction, demandSource: e.target.value})}><option value="">Selecione...</option>{FONTES_DEMANDA.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}</select>
+                            <select className="w-full p-4 border-2 rounded-2xl mb-4 font-black text-sm bg-white" value={activeAction.demandSource || ''} onChange={e => setActiveAction({ ...activeAction, demandSource: e.target.value })}><option value="">Selecione...</option>{FONTES_DEMANDA.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}</select>
                             <Label required={isOsRequired}>ID OS / Protocolo</Label>
-                            <input className="w-full p-4 border-2 rounded-2xl mb-4 font-black uppercase text-sm" placeholder={isOsRequired ? "Nº DA OS OBRIGATÓRIO" : "OPCIONAL"} value={activeAction.osId || ''} onChange={e => setActiveAction({...activeAction, osId: e.target.value.toUpperCase()})} />
+                            <input className="w-full p-4 border-2 rounded-2xl mb-4 font-black uppercase text-sm" placeholder={isOsRequired ? "Nº DA OS OBRIGATÓRIO" : "OPCIONAL"} value={activeAction.osId || ''} onChange={e => setActiveAction({ ...activeAction, osId: e.target.value.toUpperCase() })} />
                             <Label required>Suspensão Rede (COPEL)?</Label>
-                            <select className={`w-full p-4 border-2 rounded-2xl mb-4 font-black text-sm ${activeAction.copelRequired === 'SIM' ? 'border-amber-500 bg-amber-50' : 'bg-white'}`} value={activeAction.copelRequired || 'NÃO'} onChange={e => setActiveAction({...activeAction, copelRequired: e.target.value})}><option value="NÃO">NÃO NECESSÁRIO</option><option value="SIM">SIM (SOLICITAR DESLIGAMENTO)</option></select>
+                            <select className={`w-full p-4 border-2 rounded-2xl mb-4 font-black text-sm ${activeAction.copelRequired === 'SIM' ? 'border-amber-500 bg-amber-50' : 'bg-white'}`} value={activeAction.copelRequired || 'NÃO'} onChange={e => setActiveAction({ ...activeAction, copelRequired: e.target.value })}><option value="NÃO">NÃO NECESSÁRIO</option><option value="SIM">SIM (SOLICITAR DESLIGAMENTO)</option></select>
+
                             <Label required>Tipos de Poda</Label>
-                            <div className="grid grid-cols-1 gap-2 mb-4">{TIPOS_PODA_DATA.map(t => (<label key={t.id} className={`flex items-center p-4 border-2 rounded-2xl transition-all ${activeAction?.pruningTypes?.includes(t.id) ? 'border-audit-600 bg-emerald-50' : 'border-slate-100'}`}><input type="checkbox" className="hidden" checked={activeAction?.pruningTypes?.includes(t.id)} onChange={() => { const current = activeAction.pruningTypes || []; setActiveAction({...activeAction, pruningTypes: current.includes(t.id) ? current.filter(x => x !== t.id) : [...current, t.id]}); }} /><i className={`fas ${activeAction?.pruningTypes?.includes(t.id) ? 'fa-check-square text-audit-600' : 'fa-square text-slate-300'} mr-3`}></i><span className="text-[11px] font-black uppercase">{t.id}</span></label>))}</div>
+                            <div className="grid grid-cols-1 gap-2 mb-4">
+                                {TIPOS_PODA_DATA.map(t => {
+                                    const isCorte = t.id.includes('CORTE');
+                                    const isDisabled = (isCorte && hasPoda) || (!isCorte && hasCorte);
+
+                                    return (
+                                        <label key={t.id} className={`flex items-center p-4 border-2 rounded-2xl transition-all ${isDisabled ? 'opacity-50 cursor-not-allowed border-slate-100 bg-slate-50' :
+                                                activeAction?.pruningTypes?.includes(t.id) ? 'border-audit-600 bg-emerald-50' : 'border-slate-100'
+                                            }`}>
+                                            <input
+                                                type="checkbox"
+                                                className="hidden"
+                                                disabled={isDisabled}
+                                                checked={activeAction?.pruningTypes?.includes(t.id)}
+                                                onChange={() => {
+                                                    if (isDisabled) {
+                                                        alert('⚠️ NÃO PODE COMBINAR CORTE TOTAL COM PODAS!');
+                                                        return;
+                                                    }
+                                                    const current = activeAction.pruningTypes || [];
+                                                    setActiveAction({
+                                                        ...activeAction,
+                                                        pruningTypes: current.includes(t.id) ?
+                                                            current.filter(x => x !== t.id) :
+                                                            [...current, t.id]
+                                                    });
+                                                }}
+                                            />
+                                            <i className={`fas ${activeAction?.pruningTypes?.includes(t.id) ? 'fa-check-square text-audit-600' : 'fa-square text-slate-300'} mr-3`}></i>
+                                            <span className="text-[11px] font-black uppercase">{t.id}</span>
+                                            {isDisabled && <span className="ml-auto text-[8px] text-red-500 font-black">BLOQUEADO</span>}
+                                        </label>
+                                    );
+                                })}
+                            </div>
+
                             <Label required>Espécie</Label>
-                            <input list="especies" className="w-full p-4 border-2 rounded-2xl bg-slate-50 font-black mb-4 uppercase text-sm" placeholder="Pesquisar..." value={activeAction.species || ''} onChange={e => setActiveAction({...activeAction, species: e.target.value.toUpperCase()})} /><datalist id="especies">{LISTA_ESPECIES.map(s => <option key={s} value={s} />)}</datalist>
+                            <input list="especies" className="w-full p-4 border-2 rounded-2xl bg-slate-50 font-black mb-4 uppercase text-sm" placeholder="Pesquisar..." value={activeAction.species || ''} onChange={e => setActiveAction({ ...activeAction, species: e.target.value.toUpperCase() })} /><datalist id="especies">{LISTA_ESPECIES.map(s => <option key={s} value={s} />)}</datalist>
                             <div className="grid grid-cols-2 gap-4">
-                                <div><Label required>CAP (cm)</Label><input type="number" className="w-full p-4 border-2 rounded-2xl font-black text-sm" value={activeAction.cap || ''} onChange={e => setActiveAction({...activeAction, cap: e.target.value})} /></div>
-                                <div><Label required>Altura (m)</Label><input type="number" className="w-full p-4 border-2 rounded-2xl font-black text-sm" value={activeAction.height || ''} onChange={e => setActiveAction({...activeAction, height: e.target.value})} /></div>
+                                <div><Label required>CAP (cm)</Label><input type="number" className="w-full p-4 border-2 rounded-2xl font-black text-sm" value={activeAction.cap || ''} onChange={e => setActiveAction({ ...activeAction, cap: e.target.value })} /></div>
+                                <div><Label required>Altura (m)</Label><input type="number" className="w-full p-4 border-2 rounded-2xl font-black text-sm" value={activeAction.height || ''} onChange={e => setActiveAction({ ...activeAction, height: e.target.value })} /></div>
                             </div>
                         </Card>
                         <Card className={`border-2 ${activeAction.status === 'IMPEDIDO' ? 'border-red-600 bg-red-50' : 'border-slate-200 bg-white'}`}>
-                            <label className="flex items-center gap-3 p-2"><input type="checkbox" className="w-6 h-6 rounded" checked={activeAction.status === 'IMPEDIDO'} onChange={e => setActiveAction({...activeAction, status: e.target.checked ? 'IMPEDIDO' : 'OK'})} /><span className="font-black text-red-600 uppercase text-xs">Relatar Impedimento</span></label>
+                            <label className="flex items-center gap-3 p-2"><input type="checkbox" className="w-6 h-6 rounded" checked={activeAction.status === 'IMPEDIDO'} onChange={e => setActiveAction({ ...activeAction, status: e.target.checked ? 'IMPEDIDO' : 'OK' })} /><span className="font-black text-red-600 uppercase text-xs">Relatar Impedimento</span></label>
                             {activeAction.status === 'IMPEDIDO' && (
-                                <div className="mt-4 space-y-4"><textarea className="w-full p-3 border-2 border-red-300 rounded-2xl text-sm font-black uppercase" placeholder="DESCREVA O MOTIVO..." rows="3" value={activeAction.problemReport || ''} onChange={e => setActiveAction({...activeAction, problemReport: e.target.value})} /><PhotoUpload label="FOTO EVIDÊNCIA" preview={activeAction.photoProblem} onCapture={async f => setActiveAction({...activeAction, photoProblem: await processPhoto(f)})} /></div>
+                                <div className="mt-4 space-y-4"><textarea className="w-full p-3 border-2 border-red-300 rounded-2xl text-sm font-black uppercase" placeholder="DESCREVA O MOTIVO..." rows="3" value={activeAction.problemReport || ''} onChange={e => setActiveAction({ ...activeAction, problemReport: e.target.value })} /><PhotoUpload label="FOTO EVIDÊNCIA" preview={activeAction.photoProblem} onCapture={async f => setActiveAction({ ...activeAction, photoProblem: await processPhoto(f) })} /></div>
                             )}
                         </Card>
                         <Card className="border-2 border-audit-600 bg-emerald-50">
                             <Label required>3 Fotos de Antes</Label>
                             <div className="grid grid-cols-3 gap-2 mb-2">
-                                {[0,1,2].map(i => <PhotoUpload key={i} label={`F${i+1}`} preview={activeAction.photosBefore?.[i]} onCapture={async f => { let list = [...activeAction.photosBefore]; list[i] = await processPhoto(f); setActiveAction({...activeAction, photosBefore: list}); }} />)}
+                                {[0, 1, 2].map(i => <PhotoUpload key={i} label={`F${i + 1}`} preview={activeAction.photosBefore?.[i]} onCapture={async f => { let list = [...(activeAction.photosBefore || [])]; list[i] = await processPhoto(f); setActiveAction({ ...activeAction, photosBefore: list }); }} />)}
                             </div>
                             {activeAction.status === 'IMPEDIDO' ? (
-                                <button disabled={!activeAction.species || !activeAction.problemReport || !activeAction.photoProblem} onClick={async () => { const log = { ...activeAction, endTime: Date.now(), status: 'IMPEDIDO', coords: `${gps.lat},${gps.lng}`, timestamp: new Date().toISOString() }; setLogs([log, ...logs]); await pushToSupabase(log); setActiveAction(null); setView('dashboard'); }} className="w-full mt-4 py-6 rounded-3xl bg-red-600 text-white font-black uppercase text-xl shadow-lg">Registrar Impedimento</button>
+                                <button disabled={!activeAction.species || !activeAction.problemReport || !activeAction.photoProblem} onClick={async () => {
+                                    const treeId = generateTreeId(activeAction.species, activeAction.cap || 0, gps.lat, gps.lng);
+                                    const log = { ...activeAction, treeId, endTime: Date.now(), status: 'IMPEDIDO', coords: `${gps.lat},${gps.lng}`, timestamp: new Date().toISOString() };
+                                    setLogs([log, ...logs]);
+                                    await pushToSupabase(log);
+                                    setActiveAction(null);
+                                    setView('dashboard');
+                                }} className="w-full mt-4 py-6 rounded-3xl bg-red-600 text-white font-black uppercase text-xl shadow-lg disabled:opacity-50">Registrar Impedimento</button>
                             ) : (
-                                <button disabled={!activeAction.species || !activeAction.cap || !activeAction.height || !activeAction.pruningTypes?.length || (isOsRequired && !activeAction.osId) || activeAction.photosBefore?.filter(p=>p).length < 3} onClick={() => { 
-                                    const now = Date.now(); 
-                                    setActiveAction({ 
-                                        ...activeAction, 
-                                        type: 'tree', 
-                                        executionStartTime: now, 
-                                        formDurationSec: Math.floor((now - activeAction.startTime) / 1000), 
-                                        desc: `${activeAction.species} [${activeAction.osId || 'ROTINA'}]`, 
-                                        treeCoords: `${gps.lat},${gps.lng}` 
-                                    }); 
-                                    setView('active_service'); 
-                                }} className="w-full mt-4 py-6 rounded-3xl bg-audit-600 text-white font-black uppercase text-xl shadow-lg">Iniciar Manejo</button>
+                                <button disabled={!activeAction.species || !activeAction.cap || !activeAction.height || !activeAction.pruningTypes?.length || (isOsRequired && !activeAction.osId) || (activeAction.photosBefore?.filter(p => p).length < 3)} onClick={() => {
+                                    const treeId = generateTreeId(activeAction.species, activeAction.cap, gps.lat, gps.lng);
+
+                                    // ✅ VERIFICAR DUPLICATA
+                                    const duplicate = logs.find(l => l.treeId === treeId && l.type === 'tree');
+                                    if (duplicate) {
+                                        if (!confirm(`⚠️ ALERTA DE DUPLICATA!\n\nID: ${treeId}\nEspécie: ${activeAction.species}\n\nEsta árvore já foi registrada!\n\nProsseguir mesmo assim?`)) {
+                                            return;
+                                        }
+                                    }
+
+                                    const now = Date.now();
+                                    setActiveAction({
+                                        ...activeAction,
+                                        treeId,
+                                        type: 'tree',
+                                        executionStartTime: now,
+                                        formDurationSec: Math.floor((now - activeAction.startTime) / 1000),
+                                        desc: `${activeAction.species} [${activeAction.osId || 'ROTINA'}]`,
+                                        treeCoords: `${gps.lat},${gps.lng}`
+                                    });
+                                    setView('active_service');
+                                }} className="w-full mt-4 py-6 rounded-3xl bg-audit-600 text-white font-black uppercase text-xl shadow-lg disabled:opacity-50">Iniciar Manejo</button>
                             )}
                         </Card>
                     </div>
@@ -413,57 +529,57 @@
                 const totalElapsed = elapsed - (activeAction.totalPausedSeconds || 0);
                 return (
                     <div className="p-6 screen-fade flex flex-col min-h-screen no-scrollbar">
-                        <div className="text-center mt-6"><span className="bg-audit-600 text-white px-5 py-1.5 rounded-full text-[10px] font-black uppercase">Execução em Curso</span><h2 className="text-xl font-black text-slate-800 uppercase mt-5 leading-tight">{activeAction.desc}</h2></div>
+                        <div className="text-center mt-6"><span className="bg-audit-600 text-white px-5 py-1.5 rounded-full text-[10px] font-black uppercase">Execução em Curso</span><h2 className="text-xl font-black text-slate-800 uppercase mt-5 leading-tight">{activeAction.desc}</h2><p className="text-xs text-slate-400 font-mono mt-2">ID: {activeAction.treeId}</p></div>
                         <div className="flex-1 flex flex-col justify-center items-center"><div className="text-7xl font-black text-slate-900 timer-glow leading-none font-mono tracking-tighter">{formatDuration(totalElapsed)}</div></div>
                         <div className="mt-auto space-y-4 pb-8">
                             <button onClick={() => setView('pause_during_tree')} className="w-full bg-amber-500 text-black py-5 rounded-3xl font-black text-lg shadow-xl flex items-center justify-center gap-3"><i className="fas fa-pause"></i> Interromper Manejo</button>
                             <Card className="border-2 border-audit-900 shadow-xl">
                                 <Label required>3 Fotos de Depois</Label>
                                 <div className="grid grid-cols-3 gap-2 mb-2">
-                                    {[0,1,2].map(i => <PhotoUpload key={i} label={`F${i+1}`} preview={activeAction.photosAfter?.[i]} onCapture={async f => { let list = [...activeAction.photosAfter]; list[i] = await processPhoto(f); setActiveAction({...activeAction, photosAfter: list}); }} />)}
+                                    {[0, 1, 2].map(i => <PhotoUpload key={i} label={`F${i + 1}`} preview={activeAction.photosAfter?.[i]} onCapture={async f => { let list = [...(activeAction.photosAfter || [])]; list[i] = await processPhoto(f); setActiveAction({ ...activeAction, photosAfter: list }); }} />)}
                                 </div>
-                                <button disabled={activeAction.photosAfter?.filter(p=>p).length < 3} onClick={async () => { 
-                                    const now = Date.now(); 
+                                <button disabled={(activeAction.photosAfter?.filter(p => p).length < 3)} onClick={async () => {
+                                    const now = Date.now();
                                     const execDuration = Math.floor((now - activeAction.executionStartTime) / 1000);
                                     const effectiveDuration = execDuration - (activeAction.totalPausedSeconds || 0);
-                                    
-                                    const log = { 
-                                        ...activeAction, 
-                                        endTime: now, 
-                                        durationSec: Math.floor((now - activeAction.startTime) / 1000), 
-                                        executionDurationSec: execDuration, 
-                                        effectiveDurationSec: effectiveDuration, 
-                                        coords: activeAction.treeCoords || `${gps.lat},${gps.lng}`, 
-                                        status: 'OK', 
-                                        timestamp: new Date().toISOString() 
-                                    }; 
-                                    setLogs([log, ...logs]); 
-                                    await pushToSupabase(log); 
-                                    setActiveAction(null); 
-                                    setView('dashboard'); 
-                                }} className="w-full mt-4 py-5 rounded-2xl bg-audit-900 text-white font-black uppercase shadow-xl">Finalizar e Salvar</button>
+
+                                    const log = {
+                                        ...activeAction,
+                                        endTime: now,
+                                        durationSec: Math.floor((now - activeAction.startTime) / 1000),
+                                        executionDurationSec: execDuration,
+                                        effectiveDurationSec: effectiveDuration,
+                                        coords: activeAction.treeCoords || `${gps.lat},${gps.lng}`,
+                                        status: 'OK',
+                                        timestamp: new Date().toISOString()
+                                    };
+                                    setLogs([log, ...logs]);
+                                    await pushToSupabase(log);
+                                    setActiveAction(null);
+                                    setView('dashboard');
+                                }} className="w-full mt-4 py-5 rounded-2xl bg-audit-900 text-white font-black uppercase shadow-xl disabled:opacity-50">Finalizar e Salvar</button>
                             </Card>
                         </div>
                     </div>
                 );
             }
 
-            // PAUSAS (COM BOTÃO VOLTAR E OUTROS)
+            // PAUSAS
             if (view === 'global_pause_form' || view === 'pause_during_tree') {
                 const isOther = activeAction?.tempPauseReason === 'Outros';
                 return (
-                    <div className="p-6 screen-fade no-scrollbar">
+                    <div className="p-6 screen-fade no-scrollbar pb-24">
                         <h2 className="text-xl font-black text-slate-800 mb-6 uppercase italic">Registrar Parada</h2>
                         <Card>
                             <Label required>Motivo da Interrupção</Label>
-                            <select className="w-full p-4 border-2 rounded-2xl mb-4 font-black bg-white text-sm" value={activeAction?.tempPauseReason || ''} onChange={e => setActiveAction({...activeAction, tempPauseReason: e.target.value})}><option value="">Selecione...</option>{PAUSE_REASONS.map(r => <option key={r} value={r}>{r}</option>)}</select>
+                            <select className="w-full p-4 border-2 rounded-2xl mb-4 font-black bg-white text-sm" value={activeAction?.tempPauseReason || ''} onChange={e => setActiveAction({ ...activeAction, tempPauseReason: e.target.value })}><option value="">Selecione...</option>{PAUSE_REASONS.map(r => <option key={r} value={r}>{r}</option>)}</select>
                             {isOther && (
-                                <div className="mb-4"><Label required>Motivação Detalhada</Label><textarea className="w-full p-3 border-2 border-amber-300 rounded-2xl text-sm font-black uppercase" rows="3" placeholder="DESCREVA O MOTIVO..." value={activeAction.customPauseReason || ''} onChange={e => setActiveAction({...activeAction, customPauseReason: e.target.value})} /></div>
+                                <div className="mb-4"><Label required>Motivação Detalhada</Label><textarea className="w-full p-3 border-2 border-amber-300 rounded-2xl text-sm font-black uppercase" rows="3" placeholder="DESCREVA O MOTIVO..." value={activeAction.customPauseReason || ''} onChange={e => setActiveAction({ ...activeAction, customPauseReason: e.target.value })} /></div>
                             )}
-                            <PhotoUpload label="FOTO PAUSA" onCapture={async f => setActiveAction({...activeAction, tempPausePhoto: await processPhoto(f)})} preview={activeAction?.tempPausePhoto} />
+                            <PhotoUpload label="FOTO PAUSA" onCapture={async f => setActiveAction({ ...activeAction, tempPausePhoto: await processPhoto(f) })} preview={activeAction?.tempPausePhoto} />
                         </Card>
-                        <button disabled={!activeAction?.tempPauseReason || !activeAction?.tempPausePhoto || (isOther && !activeAction.customPauseReason)} onClick={() => { const now = Date.now(); setActiveAction({ ...activeAction, type: activeAction?.type || 'pause', isPaused: true, pauseStartTime: now, startTime: activeAction?.startTime || now, pauseCoords: `${gps.lat},${gps.lng}` }); setPauseElapsed(0); setView('active_pause_screen'); }} className="w-full py-6 rounded-3xl bg-amber-600 text-white font-black text-xl uppercase shadow-xl">Confirmar Pausa</button>
-                        <button onClick={()=>setView(activeAction.type==='tree' ? 'active_service' : 'dashboard')} className="w-full p-5 text-slate-400 font-black uppercase text-[10px] tracking-widest underline decoration-dotted">Voltar</button>
+                        <button disabled={!activeAction?.tempPauseReason || !activeAction?.tempPausePhoto || (isOther && !activeAction.customPauseReason)} onClick={() => { const now = Date.now(); setActiveAction({ ...activeAction, type: activeAction?.type || 'pause', isPaused: true, pauseStartTime: now, startTime: activeAction?.startTime || now, pauseCoords: `${gps.lat},${gps.lng}` }); setPauseElapsed(0); setView('active_pause_screen'); }} className="w-full py-6 rounded-3xl bg-amber-600 text-white font-black text-xl uppercase shadow-xl disabled:opacity-50">Confirmar Pausa</button>
+                        <button onClick={() => setView(activeAction.type === 'tree' ? 'active_service' : 'dashboard')} className="w-full p-5 text-slate-400 font-black uppercase text-[10px] tracking-widest underline decoration-dotted">Voltar</button>
                     </div>
                 );
             }
@@ -472,13 +588,15 @@
                 <div className="p-6 screen-fade flex flex-col min-h-screen bg-slate-900 text-white no-scrollbar">
                     <div className="text-center mt-12 px-4"><span className="bg-amber-500 text-black px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest leading-none">Serviço Suspenso</span><h2 className="text-2xl font-black uppercase mt-6 text-amber-500 leading-tight">{activeAction.tempPauseReason === 'Outros' ? activeAction.customPauseReason : activeAction.tempPauseReason}</h2></div>
                     <div className="flex-1 flex flex-col justify-center items-center"><div className="fit-timer font-black text-amber-500 pause-glow leading-none font-mono tracking-tighter">{formatDuration(pauseElapsed)}</div></div>
-                    <button onClick={async () => { const pDur = Math.floor((Date.now() - activeAction.pauseStartTime) / 1000); 
-                        if (activeAction.type === 'pause') { const log = {...activeAction, endTime: Date.now(), durationSec: pDur, status: 'PAUSA', timestamp: new Date().toISOString(), coords: activeAction.pauseCoords || `${gps.lat},${gps.lng}`}; setLogs([log, ...logs]); await pushToSupabase(log); setActiveAction(null); setView('dashboard'); } 
-                        else { setActiveAction({...activeAction, isPaused: false, totalPausedSeconds: (activeAction.totalPausedSeconds || 0) + pDur, tempPauseReason: null, tempPausePhoto: null, customPauseReason: null}); setView('active_service'); }
+                    <button onClick={async () => {
+                        const pDur = Math.floor((Date.now() - activeAction.pauseStartTime) / 1000);
+                        if (activeAction.type === 'pause') { const log = { ...activeAction, endTime: Date.now(), durationSec: pDur, status: 'PAUSA', timestamp: new Date().toISOString(), coords: activeAction.pauseCoords || `${gps.lat},${gps.lng}` }; setLogs([log, ...logs]); await pushToSupabase(log); setActiveAction(null); setView('dashboard'); }
+                        else { setActiveAction({ ...activeAction, isPaused: false, totalPausedSeconds: (activeAction.totalPausedSeconds || 0) + pDur, tempPauseReason: null, tempPausePhoto: null, customPauseReason: null }); setView('active_service'); }
                     }} className="bg-emerald-600 text-white py-7 rounded-[2rem] font-black text-2xl mb-12 uppercase mx-4 shadow-xl">Retomar Operação</button>
                 </div>
             );
 
+            // ✅ END DAY COM CONFIRMAÇÃO DE DOWNLOAD
             if (view === 'end_day') return (
                 <div className="p-6 screen-fade text-center pb-12 no-scrollbar">
                     <i className="fas fa-circle-check text-audit-600 text-5xl mb-4"></i><h2 className="text-2xl font-black text-audit-900 uppercase">Resumo Diário</h2>
@@ -492,40 +610,67 @@
                         <div className="bg-white p-3 rounded-2xl border"><p className="text-[7px] font-black text-red-600 uppercase">Cortes</p><p className="text-lg font-black">{stats.treesSuppressed}</p></div>
                     </div>
                     <button disabled={isExporting} onClick={async () => {
-                            setIsExporting(true);
-                            try {
-                                const zip = new JSZip();
-                                zip.file("RELATORIO_DETALHADO.json", JSON.stringify({ shift, logs }, null, 2));
-                                const imgs = zip.folder("EVIDENCIAS_GEORREFERENCIADAS");
-                                if(shift.foto_unificada) imgs.file("01_ABERTURA.jpg", shift.foto_unificada.base64.split(',')[1], {base64: true});
-                                logs.forEach((l, idx) => {
-                                    if(l.tempPausePhoto) imgs.file(`LOG_${idx}_PAUSA.jpg`, l.tempPausePhoto.base64.split(',')[1], {base64: true});
-                                    if(l.photoProblem) imgs.file(`LOG_${idx}_IMPEDIMENTO.jpg`, l.photoProblem.base64.split(',')[1], {base64: true});
-                                    l.photosBefore?.forEach((p, i) => { if(p) imgs.file(`ARV_${idx}_ANTES_${i+1}.jpg`, p.base64.split(',')[1], {base64: true}) });
-                                    l.photosAfter?.forEach((p, i) => { if(p) imgs.file(`ARV_${idx}_DEPOIS_${i+1}.jpg`, p.base64.split(',')[1], {base64: true}) });
-                                });
-                                const blob = await zip.generateAsync({type:"blob"});
-                                
-                                // --- UPLOAD PARA SUPABASE STORAGE ---
-                                try {
-                                    const fileName = `Backup_${new Date().toISOString().replace(/[:.]/g, '-')}.zip`;
-                                    await supabaseClient.storage.from('backups_zip').upload(fileName, blob);
-                                    console.log("Backup na nuvem realizado!");
-                                } catch(err) { console.error("Erro no backup nuvem", err); }
-                                // ------------------------------------
+                        setIsExporting(true);
+                        try {
+                            const zip = new JSZip();
+                            zip.file("RELATORIO_DETALHADO.json", JSON.stringify({ shift, logs }, null, 2));
+                            const imgs = zip.folder("EVIDENCIAS_GEORREFERENCIADAS");
+                            if (shift.foto_unificada) imgs.file("01_ABERTURA.jpg", shift.foto_unificada.base64.split(',')[1], { base64: true });
+                            logs.forEach((l, idx) => {
+                                if (l.tempPausePhoto) imgs.file(`LOG_${idx}_PAUSA.jpg`, l.tempPausePhoto.base64.split(',')[1], { base64: true });
+                                if (l.photoProblem) imgs.file(`LOG_${idx}_IMPEDIMENTO.jpg`, l.photoProblem.base64.split(',')[1], { base64: true });
+                                l.photosBefore?.forEach((p, i) => { if (p) imgs.file(`ARV_${idx}_ANTES_${i + 1}.jpg`, p.base64.split(',')[1], { base64: true }) });
+                                l.photosAfter?.forEach((p, i) => { if (p) imgs.file(`ARV_${idx}_DEPOIS_${i + 1}.jpg`, p.base64.split(',')[1], { base64: true }) });
+                            });
+                            const blob = await zip.generateAsync({ type: "blob" });
 
-                                const a = document.createElement("a"); 
-                                a.href = URL.createObjectURL(blob); 
-                                a.download = `RAD_MCR_${new Date().toISOString().slice(0,10)}.zip`; 
-                                a.click(); 
-                                await finalizeAndClearAll(); 
-                            } catch(e) { alert("Erro: " + e.message); } finally { setIsExporting(false); }
-                        }} className="w-full py-6 rounded-3xl bg-audit-600 text-white font-black text-xl shadow-xl mt-2 uppercase flex items-center justify-center gap-3"><i className={isExporting ? "fas fa-spinner fa-spin" : "fas fa-download"}></i> {isExporting ? "GERANDO E ENVIANDO..." : "BAIXAR ZIP"}</button>
-                    <button onClick={()=>setView('dashboard')} className="mt-8 text-slate-300 font-black uppercase text-[10px] underline">Voltar</button>
+                            // Upload para Supabase Storage
+                            try {
+                                const fileName = `Backup_${new Date().toISOString().replace(/[:.]/g, '-')}.zip`;
+                                await supabaseClient.storage.from('backups_zip').upload(fileName, blob);
+                            } catch (err) { console.error("Erro no backup nuvem", err); }
+
+                            // Download local
+                            const a = document.createElement("a");
+                            a.href = URL.createObjectURL(blob);
+                            a.download = `RAD_MCR_${new Date().toISOString().slice(0, 10)}.zip`;
+                            a.click();
+
+                            setDownloadedBlob(blob);
+                            setView('download_confirm');
+                        } catch (e) { alert("Erro: " + e.message); } finally { setIsExporting(false); }
+                    }} className="w-full py-6 rounded-3xl bg-audit-600 text-white font-black text-xl shadow-xl mt-2 uppercase flex items-center justify-center gap-3 disabled:opacity-50"><i className={isExporting ? "fas fa-spinner fa-spin" : "fas fa-download"}></i> {isExporting ? "GERANDO E ENVIANDO..." : "BAIXAR ZIP"}</button>
+                    <button onClick={() => setView('dashboard')} className="mt-8 text-slate-300 font-black uppercase text-[10px] underline">Voltar</button>
                 </div>
             );
 
-            if (view === 'loading') return <div className="h-screen bg-audit-900 flex items-center justify-center text-white font-black italic animate-pulse">SGP AUDIT...</div>;
+            // ✅ TELA DE CONFIRMAÇÃO DE DOWNLOAD
+            if (view === 'download_confirm') return (
+                <div className="p-6 screen-fade flex items-center justify-center min-h-screen">
+                    <div className="bg-white rounded-[2rem] p-10 max-w-md text-center shadow-2xl">
+                        <i className="fas fa-check-circle text-emerald-600 text-7xl mb-6"></i>
+                        <h2 className="text-3xl font-black text-slate-900 uppercase mb-4">Download Iniciado</h2>
+
+                        <div className="bg-amber-50 border-2 border-amber-500 p-6 rounded-2xl mb-8">
+                            <p className="font-black text-amber-900 text-sm mb-2">⚠️ CONFIRME O RECEBIMENTO</p>
+                            <p className="text-xs text-amber-800 leading-relaxed">Verifique se o arquivo ZIP foi BAIXADO antes de finalizar o turno!</p>
+                        </div>
+
+                        <button onClick={async () => { await finalizeAndClearAll(); }} className="w-full bg-emerald-600 text-white py-6 rounded-2xl font-black text-xl uppercase shadow-xl mb-4">✅ RECEBI O ARQUIVO - FINALIZAR</button>
+
+                        <button onClick={() => {
+                            const a = document.createElement("a");
+                            a.href = URL.createObjectURL(downloadedBlob);
+                            a.download = `RAD_MCR_${new Date().toISOString().slice(0, 10)}_REENVIO.zip`;
+                            a.click();
+                        }} className="w-full bg-blue-600 text-white py-5 rounded-2xl font-black uppercase shadow-lg">🔄 BAIXAR NOVAMENTE</button>
+
+                        <button onClick={() => setView('end_day')} className="mt-6 text-slate-300 font-black uppercase text-[10px] underline">Voltar</button>
+                    </div>
+                </div>
+            );
+
+            if (view === 'loading') return <div className="h-screen bg-audit-900 flex items-center justify-center text-white font-black italic animate-pulse">RAD PODA v21...</div>;
             return null;
         };
 
@@ -533,4 +678,5 @@
         root.render(<App />);
     </script>
 </body>
+
 </html>
