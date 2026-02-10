@@ -47,8 +47,7 @@
         textarea:focus {
             border-color: #059669;
             outline: none;
-            ring: 2px;
-            ring-color: rgba(5, 150, 105, 0.2);
+            box-shadow: 0 0 0 2px rgba(5, 150, 105, 0.2);
         }
 
         .btn-active:active {
@@ -108,8 +107,12 @@
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
         const TIPOS_PODA_DATA = [
-            { id: "Poda de Levantamento" }, { id: "Poda de Limpeza" }, { id: "Poda de Adequação" },
-            { id: "Poda Estrutural" }, { id: "Poda de Segurança" }, { id: "Poda Emergencial" }, { id: "CORTE TOTAL (SUPRESSÃO)" }
+            // GRUPO PODA - EDITAL OFICIAL
+            { id: "LEVANTAMENTO_DE_COPA", label: "Levantamento de Copa" },
+            { id: "PODA_LIMPEZA", label: "Poda de Limpeza" },
+            { id: "PODA_FORMACAO", label: "Poda de Formação" },
+            { id: "ADEQUACAO", label: "Adequação (Convivência)" },
+            { id: "CORRECAO_ESTRUTURAL", label: "Correção Estrutural" }
         ];
 
         const FONTES_DEMANDA = [
@@ -199,23 +202,150 @@
             const [isExporting, setIsExporting] = useState(false);
             const [downloadedBlob, setDownloadedBlob] = useState(null);
 
+            // --- SYNC QUEUE SYSTEM (BLINDAGEM TOTAL) ---
+            const [syncQueue, setSyncQueue] = useState([]);
+            const [isSyncing, setIsSyncing] = useState(false);
+            const [onlineStatus, setOnlineStatus] = useState(navigator.onLine);
+
+            // Carregar Fila ao Iniciar
+            useEffect(() => {
+                const initSync = async () => {
+                    const q = await idbKeyval.get('mcr_sync_queue_v21') || [];
+                    setSyncQueue(q);
+                };
+                initSync();
+
+                const handleOnline = () => setOnlineStatus(true);
+                const handleOffline = () => setOnlineStatus(false);
+                window.addEventListener('online', handleOnline);
+                window.addEventListener('offline', handleOffline);
+                return () => {
+                    window.removeEventListener('online', handleOnline);
+                    window.removeEventListener('offline', handleOffline);
+                };
+            }, []);
+
+            // Salvar Fila sempre que mudar
+            useEffect(() => {
+                if (syncQueue) idbKeyval.set('mcr_sync_queue_v21', syncQueue);
+            }, [syncQueue]);
+
+            // Processador de Fila (Roda a cada 5s se tiver internet)
+            useEffect(() => {
+                const processQueue = async () => {
+                    // Verificações iniciais
+                    if (!onlineStatus) return;
+                    if (syncQueue.length === 0) return;
+                    if (isSyncing) return; // Evita concorrência
+
+                    setIsSyncing(true);
+
+                    // Pega o item mais antigo (FIFO)
+                    const item = syncQueue[0];
+
+                    try {
+                        console.log(`🔄 TENTANDO SINCRONIZAR: ${item.type}`, item.payload);
+
+                        // --- 1. UPLOAD DE IMGEM ---
+                        if (item.type === 'IMAGE_UPLOAD') {
+                            const { path, bucket, base64 } = item.payload;
+
+                            // Converte Base64 de volta para Blob
+                            const res = await fetch(base64);
+                            const blob = await res.blob();
+
+                            const { error } = await supabaseClient.storage
+                                .from(bucket || 'evidencias') // Garante bucket certo
+                                .upload(path, blob, { upsert: true });
+
+                            if (error) throw new Error(`Erro Upload: ${error.message}`);
+                        }
+
+                        // --- 2. INSERT NO BANCO ---
+                        else if (item.type === 'DB_INSERT') {
+                            const { table, data } = item.payload;
+                            const { error } = await supabaseClient
+                                .from(table)
+                                .insert(data);
+
+                            if (error) throw new Error(`Erro Banco Insert: ${error.message} (Tabela: ${table})`);
+                        }
+
+                        // --- 3. SUCESSO! REMOVE DA FILA ---
+                        console.log("✅ SUCESSO! Item enviado.");
+                        const newQueue = syncQueue.slice(1);
+                        setSyncQueue(newQueue);
+                        await idbKeyval.set('mcr_sync_queue_v21', newQueue);
+
+                    } catch (err) {
+                        console.error("❌ FALHA NO SYNC:", err);
+                        // Se for erro de permissão (RLS), avisa o usuário
+                        if (err.message.includes("row-level security") || err.message.includes("permission denied")) {
+                            alert("ERRO DE PERMISSÃO: O sistema de nuvem bloqueou o envio. Avise o suporte imediatamente com o código: 'RLS_BLOCK'");
+                        }
+                        // Não remove da fila para tentar de novo
+                    } finally {
+                        setIsSyncing(false);
+                    }
+                };
+
+                const timer = setInterval(processQueue, 3000); // Tenta a cada 3 segundos
+                return () => clearInterval(timer);
+            }, [syncQueue, isSyncing, onlineStatus]);
+
+            // Helper para Adicionar à Fila
+            const addToSyncQueue = async (type, payload) => {
+                const newItem = { id: Date.now() + Math.random(), type, payload, timestamp: new Date().toISOString() };
+                const newQueue = [...syncQueue, newItem];
+                setSyncQueue(newQueue);
+                await idbKeyval.set('mcr_sync_queue_v21', newQueue);
+            };
+
+
+            useEffect(() => {
+                const handleBeforeUnload = (e) => {
+                    if (syncQueue.length > 0) {
+                        e.preventDefault();
+                        e.returnValue = "⚠️ DADOS NÃO ENVIADOS! SAIR AGORA É CONSIDERADO FALTA GRAVE.";
+                        return e.returnValue;
+                    }
+                };
+                window.addEventListener('beforeunload', handleBeforeUnload);
+                return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+            }, [syncQueue]);
+
             useEffect(() => {
                 const load = async () => {
+
                     try {
                         const s = await idbKeyval.get('mcr_shift_v21_oficial');
                         const a = await idbKeyval.get('mcr_active_v21_oficial');
                         const l = await idbKeyval.get('mcr_logs_v21_oficial') || [];
                         if (s) setShift(s);
+
+                        // RECUPERAÇÃO DE ESTADO (CRASH/RELOAD)
                         if (a) {
                             setActiveAction(a);
+                            // Recalcula tempo decorrido desde o crash
+                            const now = Date.now();
                             if (a.executionStartTime) {
-                                setElapsed(Math.floor((Date.now() - a.executionStartTime) / 1000));
+                                // Se estava em execução, o tempo continua contando
+                                setElapsed(Math.floor((now - a.executionStartTime) / 1000));
                             } else if (a.startTime) {
-                                setElapsed(Math.floor((Date.now() - a.startTime) / 1000));
+                                setElapsed(Math.floor((now - a.startTime) / 1000));
                             }
                         }
+
                         setLogs(l);
-                        setView(s?.active ? 'dashboard' : 'setup');
+
+                        // CHECK DE INTEGRIDADE (ANTI-SABOTAGEM)
+                        const lastExitSafety = localStorage.getItem('mcr_safety_exit');
+                        if (lastExitSafety === 'unsafe' && s?.active) {
+                            alert("⚠️ ALERTA DE SEGURANÇA \n\nA última sessão foi encerrada incorretamente ou os dados foram limpos sem envio.\nIsso foi registrado no log de auditoria do sistema.");
+                        }
+                        localStorage.setItem('mcr_safety_exit', 'unsafe'); // Marca como insegura até que faça logout correto
+
+                        setView(s?.active ? (a ? (a.type === 'tree' && a.executionStartTime ? 'active_service' : 'tree_form') : 'dashboard') : 'setup');
                     } catch (err) { setView('setup'); }
                 };
                 load();
@@ -248,6 +378,28 @@
                 idbKeyval.set('mcr_logs_v21_oficial', logs);
             }, [shift, activeAction, logs]);
 
+            // ✅ BLINDAGEM TOTAL: BACKUP DE ESTADO A CADA 1 MINUTO
+            useEffect(() => {
+                const interval = setInterval(() => {
+                    if (shift?.active) {
+                        const safePlaca = (shift.placa || 'SEM_PLACA').replace(/[^a-zA-Z0-9]/g, '');
+                        const backupState = {
+                            shift: shift,
+                            logs: logs,
+                            activeAction: activeAction,
+                            lastUpdate: new Date().toISOString()
+                        };
+                        const blob = new Blob([JSON.stringify(backupState, null, 2)], { type: 'application/json' });
+                        const fileName = `ESTADO_TEMPO_REAL/${safePlaca}_LATEST.json`;
+
+                        supabaseClient.storage.from('backups_zip').upload(fileName, blob, { upsert: true })
+                            .then(() => console.log("Backup de Estado OK"))
+                            .catch(err => console.warn("Erro Backup Estado:", err));
+                    }
+                }, 60000); // 60 segundos
+                return () => clearInterval(interval);
+            }, [shift, logs, activeAction]);
+
             useEffect(() => {
                 const watchId = navigator.geolocation.watchPosition(
                     (pos) => setGps({ lat: pos.coords.latitude.toFixed(6), lng: pos.coords.longitude.toFixed(6) }),
@@ -257,7 +409,8 @@
                 return () => navigator.geolocation.clearWatch(watchId);
             }, []);
 
-            const getMetadata = (file) => {
+            // --- FUNÇÕES DE SUPORTE (EXTRACÃO DE METADADOS E PROCESSAMENTO) ---
+            const getExifData = (file) => {
                 return new Promise((resolve) => {
                     EXIF.getData(file, function () {
                         const allTags = EXIF.getAllTags(this);
@@ -265,61 +418,122 @@
                             if (!dms) return null;
                             let dd = dms[0] + dms[1] / 60 + dms[2] / 3600;
                             if (ref === "S" || ref === "W") dd = dd * -1;
-                            return dd.toFixed(6);
+                            return dd;
                         };
                         resolve({
-                            dateTime: allTags.DateTimeOriginal || allTags.DateTime || null,
+                            dateTime: allTags.DateTimeOriginal || allTags.DateTime,
                             lat: convertDMSToDD(allTags.GPSLatitude, allTags.GPSLatitudeRef),
                             lng: convertDMSToDD(allTags.GPSLongitude, allTags.GPSLongitudeRef),
-                            device: allTags.Model || "Unknown"
+                            make: allTags.Make,
+                            model: allTags.Model
                         });
                     });
                 });
             };
 
-            const processPhoto = async (file) => {
+            const processPhoto = async (file, photoType = 'GENERICO') => {
                 if (!file) return null;
-                const metadata = await getMetadata(file);
-                const options = { maxSizeMB: 0.1, maxWidthOrHeight: 1024, useWebWorker: true };
+                const options = { maxSizeMB: 0.2, maxWidthOrHeight: 1280, useWebWorker: true }; // Otimizado para 3G/4G
+
                 try {
-                    const compressed = await imageCompression(file, options);
-                    const base64 = await new Promise(r => { const reader = new FileReader(); reader.readAsDataURL(compressed); reader.onloadend = () => r(reader.result); });
-                    return { base64, metadata, systemGps: `${gps.lat},${gps.lng}`, timestamp: new Date().toISOString() };
-                } catch (e) { return null; }
+                    // 1. Compressão Inteligente
+                    const compressedFile = await imageCompression(file, options);
+                    const metadata = await getExifData(file); // Extrai EXIF do ORIGINAL
+
+                    // 2. Preparação para Upload Seguro (SaaS Storage)
+                    const fileExt = file.name.split('.').pop();
+                    const fileName = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
+                    const storagePath = `${shift.journeyDate || 'SEM_DATA'}/${shift.placa || 'SEM_PLACA'}/${photoType}/${fileName}`;
+
+                    // 3. Converter para Base64 (apenas para preview local imediato)
+                    const base64 = await imageCompression.getDataUrlFromFile(compressedFile);
+
+                    // 4. Adicionar à Fila de Upload (Background Sync)
+                    // Importante: A fila agora salva o BLOB/File direto se possível, ou base64 para reconstruir
+                    addToSyncQueue('IMAGE_UPLOAD', {
+                        path: storagePath,
+                        base64: base64, // Usando base64 para persistência no IndexedDB
+                        bucket: 'fotos_campo'
+                    });
+
+                    // Retorna objeto padronizado para o estado local
+                    return {
+                        localPreview: base64,
+                        storagePath: storagePath,
+                        publicUrl: supabaseClient.storage.from('fotos_campo').getPublicUrl(storagePath).data.publicUrl,
+                        metadata: {
+                            ...metadata,
+                            originalDate: metadata.dateTime,
+                            gps_lat: metadata.lat,
+                            gps_lng: metadata.lng
+                        },
+                        capturedAt: new Date().toISOString()
+                    };
+                } catch (e) {
+                    console.error("Erro processamento img:", e);
+                    alert("Erro ao processar imagem. Tente novamente.");
+                    return null;
+                }
             };
 
+            // --- SISTEMA DE ENVIO SaaS (TABELAS RELACIONAIS) ---
             const pushToSupabase = async (logItem) => {
-                try {
-                    const dadosParaEnviar = {
-                        operador_encarregado: shift.operador,
-                        rt_responsavel: shift.rt,
-                        tst_responsavel: shift.tst,
-                        data_referencia: shift.journeyDate,
-                        sincronizado_em: new Date().toISOString(),
-                        dados_tecnicos: {
-                            ...logItem,
-                            placa: shift.placa,
-                            equipe: shift.auxiliares,
-                            shift_data: shift
-                        }
+                // Se for PAUSA
+                if (logItem.status === 'PAUSA') {
+                    const pausaPayload = {
+                        id_turno: shift.id_banco, // Precisa capturar ID do turno
+                        motivo: logItem.tempPauseReason,
+                        descricao_detalhada: logItem.customPauseReason,
+                        inicio: new Date(logItem.pauseStartTime).toISOString(),
+                        fim: new Date(logItem.endTime).toISOString(),
+                        duracao_seg: logItem.durationSec,
+                        foto_evidencia: logItem.tempPausePhoto?.storagePath,
+                        coords_lat: gps.lat,
+                        coords_lng: gps.lng
                     };
+                    addToSyncQueue('DB_INSERT', { table: 'tb_pausas', data: pausaPayload });
+                    return;
+                }
 
-                    const payloadString = JSON.stringify(dadosParaEnviar);
-                    const tamanhoMB = payloadString.length / (1024 * 1024);
+                // Se for MANEJO (Árvore)
+                const manejoPayload = {
+                    id_turno: shift.id_banco,
+                    tree_id_md5: logItem.treeId,
 
-                    if (tamanhoMB > 5.5) {
-                        delete dadosParaEnviar.dados_tecnicos.photosBefore;
-                        delete dadosParaEnviar.dados_tecnicos.photosAfter;
-                        delete dadosParaEnviar.dados_tecnicos.photoProblem;
-                        delete dadosParaEnviar.dados_tecnicos.tempPausePhoto;
-                    }
+                    // Dendrometria
+                    especie: logItem.species,
+                    cap: parseFloat(logItem.cap),
+                    altura: parseFloat(logItem.height),
 
-                    const { error } = await supabaseClient
-                        .from('registros_poda')
-                        .insert([dadosParaEnviar]);
+                    // Classificação
+                    origem_demanda: activeAction?.demandSource || 'ROTINA',
+                    protocolo_os: activeAction?.osId,
+                    tipos_poda: logItem.pruningTypes,
+                    destinacao_galhos: logItem.destinacaoGalhos,
 
-                    if (error) console.error("ERRO SUPABASE:", error);
-                } catch (e) { console.error(e); }
+                    // Tempos e Auditoria
+                    inicio_form: new Date(logItem.startTime).toISOString(),
+                    inicio_execucao: new Date(logItem.executionStartTime).toISOString(),
+                    fim_execucao: new Date(logItem.endTime).toISOString(),
+                    duracao_total_seg: logItem.durationSec,
+                    duracao_efetiva_seg: logItem.effectiveDurationSec,
+
+                    // Fotos (Armazena apenas os caminhos do Storage, fotos sobem separado)
+                    fotos_antes: logItem.photosBefore?.map(p => p?.storagePath).filter(Boolean),
+                    fotos_depois: logItem.photosAfter?.map(p => p?.storagePath).filter(Boolean),
+                    foto_impedimento: logItem.photoProblem?.storagePath,
+
+                    // Status e Impedimentos
+                    status: logItem.status,
+                    motivo_impedimento: logItem.problemReport,
+
+                    // GEO POSTGIS 
+                    coords_lat: gps.lat,
+                    coords_lng: gps.lng,
+                    endereco_aproximado: 'Captura via GPS'
+                };
+
+                addToSyncQueue('DB_INSERT', { table: 'tb_manejos', data: manejoPayload });
             };
 
             const stats = useMemo(() => {
@@ -378,8 +592,57 @@
                             <Label>Logística de Apoio</Label>
                             <input className="w-full p-4 border-2 rounded-2xl font-black uppercase text-sm" placeholder="Placa Veículo de Apoio" value={shift?.placaAux || ''} onChange={e => setShift({ ...shift, placaAux: e.target.value.toUpperCase() })} />
                         </Card>
-                        <Card><Label required>DDS / Checklist</Label><PhotoUpload fullWidth label="DDS + CHECKLIST" preview={shift?.foto_unificada} onCapture={async f => setShift({ ...shift, foto_unificada: await processPhoto(f) })} /></Card>
-                        <button disabled={!shift?.rt || !shift?.operador || !shift?.placa || !shift?.foto_unificada || shift?.auxiliares?.some(a => !a)} onClick={() => { setShift({ ...shift, active: true, journeyStartTime: shift.journeyStartTime || Date.now(), journeyEndTime: null, journeyDate: shift.journeyDate || new Date().toLocaleDateString() }); setView('dashboard'); }} className="w-full py-6 rounded-3xl bg-audit-600 text-white font-black text-xl shadow-xl disabled:bg-slate-300 uppercase tracking-tighter">Iniciar Expediente</button>
+                        <Card><Label required>DDS / Checklist</Label><PhotoUpload fullWidth label="DDS + CHECKLIST" preview={shift?.foto_unificada} onCapture={async f => setShift({ ...shift, foto_unificada: await processPhoto(f, 'DDS') })} /></Card>
+                        <button disabled={!shift?.rt || !shift?.operador || !shift?.placa || !shift?.foto_unificada || shift?.auxiliares?.some(a => !a)} onClick={async () => {
+                            const now = new Date();
+                            const journeyDate = now.toLocaleDateString();
+
+                            // 1. Prepara Estado Local
+                            const newShiftState = {
+                                ...shift,
+                                active: true,
+                                journeyStartTime: Date.now(),
+                                journeyEndTime: null,
+                                journeyDate: journeyDate
+                            };
+
+                            // 2. Prepara Payload do Banco
+                            const turnoPayload = {
+                                equipe_operador: shift.operador,
+                                placa_veiculo: shift.placa,
+                                rt_responsavel: shift.rt,
+                                tst_responsavel: shift.tst,
+                                auxiliares: shift.auxiliares,
+                                inicio_jornada: now.toISOString(),
+                                img_dds_url: shift.foto_unificada?.storagePath,
+                                audit_device_info: { userAgent: navigator.userAgent }
+                            };
+
+                            // 3. Insere no Banco (Síncrono para garantir ID)
+                            try {
+                                const { data, error } = await supabaseClient.from('tb_turnos').insert(turnoPayload).select().single();
+                                if (error) throw error;
+                                if (data) newShiftState.id_banco = data.id; // Guarda ID do banco para relacionar manejos
+                            } catch (e) {
+                                console.error("Erro ao iniciar turno no banco (offline?):", e);
+                                // Se falhar (offline), gera um ID temporário e adiciona à fila de sync para DEPOIS
+                                const tempId = crypto.randomUUID();
+                                newShiftState.id_banco = tempId;
+                                addToSyncQueue('DB_INSERT', { table: 'tb_turnos', data: { ...turnoPayload, id: tempId } });
+                            }
+
+                            setShift(newShiftState);
+                            setView('dashboard');
+                        }} className="w-full py-6 rounded-3xl bg-audit-600 text-white font-black text-xl shadow-xl disabled:bg-slate-300 uppercase tracking-tighter">Iniciar Expediente</button>
+
+                        <div className="mt-8 text-center">
+                            <button onClick={() => {
+                                const p = prompt("🔐 ACESSO RESTRITO\nDigite a Senha de Supervisor:");
+                                if (p === 'admin') finalizeAndClearAll();
+                            }} className="text-[9px] text-slate-200 font-bold uppercase tracking-widest hover:text-red-400 transition-colors opacity-60 hover:opacity-100">
+                                <i className="fas fa-lock mr-1"></i> Opções de Suporte (Reset)
+                            </button>
+                        </div>
                     </div>
                 );
             }
@@ -388,7 +651,27 @@
                 <div className="screen-fade pb-24 no-scrollbar min-h-screen">
                     <div className="p-4 border-b flex justify-between items-center bg-white sticky top-0 z-40 shadow-sm">
                         <div className="flex items-center gap-3"><div className="w-10 h-10 bg-audit-600 rounded-full flex items-center justify-center text-white shadow-lg"><i className="fas fa-tree"></i></div><div><p className="text-[10px] font-black text-audit-600 uppercase leading-none">RAD PODA v21</p><p className="font-black text-slate-800 text-sm truncate max-w-[140px] uppercase leading-none mt-1.5">{shift.operador}</p></div></div>
-                        <div className="text-right"><p className="text-[9px] font-black text-slate-400 uppercase leading-none">{shift.journeyDate}</p><button onClick={() => setView('edit_team')} className="bg-slate-100 p-1 px-2 mt-1.5 rounded-lg text-[8px] font-black uppercase text-slate-500">Alterar Equipe</button></div>
+                        <div className="text-right">
+                            {/* INDICADOR DE SYNC */}
+                            <div className={`inline-flex items-center gap-2 px-2 py-1 rounded-lg mb-1 ${syncQueue.length === 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
+                                <div className={`w-2 h-2 rounded-full ${syncQueue.length === 0 ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`}></div>
+                                <span className="text-[8px] font-black uppercase">{syncQueue.length === 0 ? 'NUVEM OK' : `ENVIANDO (${syncQueue.length})`}</span>
+                                {syncQueue.length > 0 && (
+                                    <button onClick={async (e) => {
+                                        e.stopPropagation();
+                                        const p = prompt("🔐 ACESSO RESTRITO\nDigite a Senha de Supervisor:");
+                                        if (p === 'admin') {
+                                            setSyncQueue([]);
+                                            await idbKeyval.del('mcr_sync_queue_v21');
+                                            alert("Fila limpa com sucesso.");
+                                        }
+                                    }} className="ml-2 text-slate-300 hover:text-red-500 transition-colors" title="Limpeza Técnica (Senha Requerida)">
+                                        <i className="fas fa-trash-alt text-[10px]"></i>
+                                    </button>
+                                )}
+                            </div>
+                            <p className="text-[7px] font-black text-slate-400 uppercase leading-none">{shift.journeyDate}</p>
+                        </div>
                     </div>
                     <div className="p-5">
                         <div className="bg-slate-900 p-5 rounded-3xl text-white shadow-2xl mb-4 text-center border-b-4 border-audit-500"><p className="text-[10px] font-black opacity-50 uppercase mb-1 tracking-widest leading-none">Jornada Total Diária</p><p className="text-4xl font-black font-mono text-audit-500 tracking-tighter leading-none">{formatDuration(stats.journey)}</p></div>
@@ -407,66 +690,151 @@
                         </div>
                     </div>
                     <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/95 border-t z-40"><button onClick={() => setShowEndConfirm(true)} className="w-full bg-audit-900 text-white py-5 rounded-3xl font-black text-sm uppercase tracking-widest">Encerrar Turno</button></div>
-                    {showEndConfirm && (
-                        <div className="fixed inset-0 z-50 modal-overlay flex items-center justify-center p-6 screen-fade">
-                            <div className="bg-white w-full max-w-sm rounded-[2rem] p-8 shadow-2xl text-center"><i className="fas fa-warning text-audit-900 text-5xl mb-4"></i><h3 className="text-xl font-black text-slate-800 uppercase leading-none">Confirmar Fechamento?</h3><div className="mt-8 space-y-3"><button onClick={() => { setShift({ ...shift, journeyEndTime: Date.now() }); setShowEndConfirm(false); setView('end_day'); }} className="w-full bg-audit-900 text-white py-5 rounded-2xl font-black uppercase shadow-lg">Sim, Encerrar</button><button onClick={() => setShowEndConfirm(false)} className="w-full bg-slate-100 text-slate-400 py-4 rounded-2xl font-black uppercase text-[10px]">Voltar</button></div></div>
-                        </div>
-                    )}
-                </div>
+                    {
+                        showEndConfirm && (
+                            <div className="fixed inset-0 z-50 modal-overlay flex items-center justify-center p-6 screen-fade">
+                                <div className="bg-white w-full max-w-sm rounded-[2rem] p-8 shadow-2xl text-center"><i className="fas fa-warning text-audit-900 text-5xl mb-4"></i><h3 className="text-xl font-black text-slate-800 uppercase leading-none">Confirmar Fechamento?</h3><div className="mt-8 space-y-3"><button onClick={async () => {
+                                    const endTime = new Date();
+                                    setShift({ ...shift, journeyEndTime: Date.now() });
+
+                                    // Envia Fechamento para o Banco
+                                    if (shift.id_banco) {
+                                        addToSyncQueue('DB_UPDATE', {
+                                            table: 'tb_turnos',
+                                            id: shift.id_banco,
+                                            data: { fim_jornada: endTime.toISOString(), status: 'FECHADO' }
+                                        });
+                                    }
+
+                                    setShowEndConfirm(false);
+                                    setView('end_day');
+                                }} className="w-full bg-audit-900 text-white py-5 rounded-2xl font-black uppercase shadow-lg">Sim, Encerrar</button><button onClick={() => setShowEndConfirm(false)} className="w-full bg-slate-100 text-slate-400 py-4 rounded-2xl font-black uppercase text-[10px]">Voltar</button></div></div>
+                            </div>
+                        )
+                    }
+                </div >
             );
 
             if (view === 'tree_form') {
-                const isOsRequired = activeAction.demandSource && activeAction.demandSource !== 'manutencao';
-                const hasCorte = activeAction?.pruningTypes?.some(p => p.includes('CORTE'));
-                const hasPoda = activeAction?.pruningTypes?.some(p => !p.includes('CORTE'));
+                const source = activeAction.demandSource;
+
+                // LÓGICA DE CAMPOS OBRIGATÓRIOS
+                // Apenas 'os' (Protocolo Cidadão) e 'corte_protocolo' exigem número.
+                // Manutenção e Emergência NÃO exigem.
+                const isOsRequired = source === 'os' || source === 'corte_protocolo';
+
+                // Lógica de Renderização Dinâmica dos Serviços
+                const isEmergencia = source === 'emergencia';
+                const isCorteFixo = source === 'corte_protocolo'; // Corte com Laudo já é fixo "SUPRESSÃO"
+                const isPodaRotina = source === 'manutencao' || source === 'os';
 
                 return (
                     <div className="p-6 screen-fade pb-20 no-scrollbar">
                         <div className="flex items-center gap-4 mb-6"><button onClick={() => { setActiveAction(null); setView('dashboard'); }} className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center"><i className="fas fa-arrow-left"></i></button><h2 className="text-xl font-black text-slate-800 uppercase italic leading-none">Prontuário</h2></div>
                         <Card>
                             <Label required>Origem da Demanda</Label>
-                            <select className="w-full p-4 border-2 rounded-2xl mb-4 font-black text-sm bg-white" value={activeAction.demandSource || ''} onChange={e => setActiveAction({ ...activeAction, demandSource: e.target.value })}><option value="">Selecione...</option>{FONTES_DEMANDA.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}</select>
-                            <Label required={isOsRequired}>ID OS / Protocolo</Label>
-                            <input className="w-full p-4 border-2 rounded-2xl mb-4 font-black uppercase text-sm" placeholder={isOsRequired ? "Nº DA OS OBRIGATÓRIO" : "OPCIONAL"} value={activeAction.osId || ''} onChange={e => setActiveAction({ ...activeAction, osId: e.target.value.toUpperCase() })} />
+                            <div className="grid grid-cols-2 gap-2 mb-4">
+                                {FONTES_DEMANDA.map(f => (
+                                    <button
+                                        key={f.id}
+                                        onClick={() => {
+                                            // Ao mudar fonte, reseta tipos para evitar inconsistência
+                                            setActiveAction({ ...activeAction, demandSource: f.id, pruningTypes: [] });
+                                        }}
+                                        className={`p-3 rounded-xl text-[10px] font-black uppercase transition-all ${activeAction.demandSource === f.id ? 'bg-audit-600 text-white border-audit-600 shadow-lg scale-[1.02]' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100 border-2'}`}
+                                    >
+                                        {f.label}
+                                    </button>
+                                ))}
+                            </div>
+
+                            {/* CAMPO DE PROTOCOLO / OS */}
+                            <div className={`transition-all duration-300 ${isOsRequired ? 'opacity-100 max-h-24' : 'opacity-50 max-h-24'}`}>
+                                <Label required={isOsRequired}>ID OS / Protocolo / Laudo</Label>
+                                <input
+                                    className="w-full p-4 border-2 rounded-2xl mb-4 font-black uppercase text-sm"
+                                    placeholder={isOsRequired ? "Nº OBRIGATÓRIO" : "OPCIONAL (SE HOUVER)"}
+                                    value={activeAction.osId || ''}
+                                    onChange={e => setActiveAction({ ...activeAction, osId: e.target.value.toUpperCase() })}
+                                />
+                            </div>
+
                             <Label required>Suspensão Rede (COPEL)?</Label>
                             <select className={`w-full p-4 border-2 rounded-2xl mb-4 font-black text-sm ${activeAction.copelRequired === 'SIM' ? 'border-amber-500 bg-amber-50' : 'bg-white'}`} value={activeAction.copelRequired || 'NÃO'} onChange={e => setActiveAction({ ...activeAction, copelRequired: e.target.value })}><option value="NÃO">NÃO NECESSÁRIO</option><option value="SIM">SIM (SOLICITAR DESLIGAMENTO)</option></select>
 
-                            <Label required>Tipos de Poda</Label>
-                            <div className="grid grid-cols-1 gap-2 mb-4">
-                                {TIPOS_PODA_DATA.map(t => {
-                                    const isCorte = t.id.includes('CORTE');
-                                    const isDisabled = (isCorte && hasPoda) || (!isCorte && hasCorte);
+                            {/* SEÇÃO DE SERVIÇOS - LÓGICA CONDICIAL COMPLEXA */}
+                            <div className="bg-slate-50 p-4 rounded-2xl border-2 border-slate-100 mb-4">
+                                <Label required>Serviço a Executar</Label>
 
-                                    return (
-                                        <label key={t.id} className={`flex items-center p-4 border-2 rounded-2xl transition-all ${isDisabled ? 'opacity-50 cursor-not-allowed border-slate-100 bg-slate-50' :
-                                                activeAction?.pruningTypes?.includes(t.id) ? 'border-audit-600 bg-emerald-50' : 'border-slate-100'
-                                            }`}>
-                                            <input
-                                                type="checkbox"
-                                                className="hidden"
-                                                disabled={isDisabled}
-                                                checked={activeAction?.pruningTypes?.includes(t.id)}
-                                                onChange={() => {
-                                                    if (isDisabled) {
-                                                        alert('⚠️ NÃO PODE COMBINAR CORTE TOTAL COM PODAS!');
-                                                        return;
-                                                    }
-                                                    const current = activeAction.pruningTypes || [];
-                                                    setActiveAction({
-                                                        ...activeAction,
-                                                        pruningTypes: current.includes(t.id) ?
-                                                            current.filter(x => x !== t.id) :
-                                                            [...current, t.id]
-                                                    });
-                                                }}
+                                {/* CASO 1: CORTE COM PROTOCOLO (FIXO) */}
+                                {isCorteFixo && (
+                                    <div className="flex items-center gap-3 p-4 bg-red-50 border-2 border-red-200 rounded-xl">
+                                        <i className="fas fa-skull-crossbones text-red-600 text-xl"></i>
+                                        <div>
+                                            <p className="font-black text-red-800 uppercase text-sm">CORTE TOTAL (SUPRESSÃO)</p>
+                                            <p className="text-[10px] text-red-600 font-bold">REQUER LAUDO TÉCNICO VÁLIDO</p>
+                                        </div>
+                                        <input type="checkbox" checked readOnly className="ml-auto w-6 h-6 accent-red-600"
+                                            ref={input => { if (input && !activeAction.pruningTypes?.includes('CORTE TOTAL')) setActiveAction({ ...activeAction, pruningTypes: ['CORTE TOTAL'] }) }}
+                                        />
+                                    </div>
+                                )}
+
+                                {/* CASO 2: EMERGÊNCIA (SELETOR BINÁRIO DE RISCO) */}
+                                {isEmergencia && (
+                                    <div className="space-y-3">
+                                        <p className="text-[10px] text-amber-600 font-black mb-2 flex items-center gap-2"><i className="fas fa-exclamation-triangle"></i> SELECIONE A AÇÃO DE CONTINGÊNCIA:</p>
+                                        <label className={`flex items-center p-4 border-2 rounded-xl bg-white transition-all ${activeAction.pruningTypes?.includes('PODA EMERGENCIAL') ? 'border-amber-500 bg-amber-50' : ''}`}>
+                                            <input type="radio" name="emergencia_tipo" className="w-5 h-5 accent-amber-600 mr-3"
+                                                onChange={() => setActiveAction({ ...activeAction, pruningTypes: ['PODA EMERGENCIAL'] })}
+                                                checked={activeAction.pruningTypes?.includes('PODA EMERGENCIAL')}
                                             />
-                                            <i className={`fas ${activeAction?.pruningTypes?.includes(t.id) ? 'fa-check-square text-audit-600' : 'fa-square text-slate-300'} mr-3`}></i>
-                                            <span className="text-[11px] font-black uppercase">{t.id}</span>
-                                            {isDisabled && <span className="ml-auto text-[8px] text-red-500 font-black">BLOQUEADO</span>}
+                                            <span className="font-black text-sm text-slate-700">PODA EMERGENCIAL (RISCO QUEDA GALHOS)</span>
                                         </label>
-                                    );
-                                })}
+                                        <label className={`flex items-center p-4 border-2 rounded-xl bg-white transition-all ${activeAction.pruningTypes?.includes('CORTE EMERGENCIAL') ? 'border-red-500 bg-red-50' : ''}`}>
+                                            <input type="radio" name="emergencia_tipo" className="w-5 h-5 accent-red-600 mr-3"
+                                                onChange={() => setActiveAction({ ...activeAction, pruningTypes: ['CORTE EMERGENCIAL'] })}
+                                                checked={activeAction.pruningTypes?.includes('CORTE EMERGENCIAL')}
+                                            />
+                                            <span className="font-black text-sm text-red-700">CORTE EMERGENCIAL (RISCO QUEDA ÁRVORE)</span>
+                                        </label>
+                                    </div>
+                                )}
+
+                                {/* CASO 3: MANUTENÇÃO / PODA ROTINA (LISTA DE PODAS DO EDITAL) */}
+                                {isPodaRotina && (
+                                    <div className="grid grid-cols-1 gap-2">
+                                        {TIPOS_PODA_DATA.map(t => (
+                                            <label key={t.id} className={`flex items-center p-3 border-2 rounded-xl bg-white transition-all ${activeAction.pruningTypes?.includes(t.id) ? 'border-audit-600 bg-emerald-50' : 'border-slate-100'}`}>
+                                                <input
+                                                    type="checkbox"
+                                                    className="w-5 h-5 accent-audit-600 mr-3 rounded"
+                                                    checked={activeAction?.pruningTypes?.includes(t.id)}
+                                                    onChange={() => {
+                                                        const current = activeAction.pruningTypes || [];
+                                                        setActiveAction({
+                                                            ...activeAction,
+                                                            pruningTypes: current.includes(t.id) ? current.filter(x => x !== t.id) : [...current, t.id]
+                                                        });
+                                                    }}
+                                                />
+                                                <span className="text-[11px] font-black uppercase text-slate-700">{t.label}</span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
+
+                            {/* OPÇÃO DE DESTINAÇÃO (SEMPRE VISÍVEL MAS OPCIONAL) */}
+                            <label className="flex items-center gap-3 p-3 border-2 border-slate-200 rounded-xl bg-white mb-4">
+                                <input
+                                    type="checkbox"
+                                    className="w-5 h-5 accent-blue-600"
+                                    checked={activeAction.destinacaoGalhos || false}
+                                    onChange={e => setActiveAction({ ...activeAction, destinacaoGalhos: e.target.checked })}
+                                />
+                                <span className="text-[10px] font-black uppercase text-blue-800">REALIZAR DESTINAÇÃO FINAL DE GALHOS?</span>
+                            </label>
 
                             <Label required>Espécie</Label>
                             <input list="especies" className="w-full p-4 border-2 rounded-2xl bg-slate-50 font-black mb-4 uppercase text-sm" placeholder="Pesquisar..." value={activeAction.species || ''} onChange={e => setActiveAction({ ...activeAction, species: e.target.value.toUpperCase() })} /><datalist id="especies">{LISTA_ESPECIES.map(s => <option key={s} value={s} />)}</datalist>
@@ -478,13 +846,13 @@
                         <Card className={`border-2 ${activeAction.status === 'IMPEDIDO' ? 'border-red-600 bg-red-50' : 'border-slate-200 bg-white'}`}>
                             <label className="flex items-center gap-3 p-2"><input type="checkbox" className="w-6 h-6 rounded" checked={activeAction.status === 'IMPEDIDO'} onChange={e => setActiveAction({ ...activeAction, status: e.target.checked ? 'IMPEDIDO' : 'OK' })} /><span className="font-black text-red-600 uppercase text-xs">Relatar Impedimento</span></label>
                             {activeAction.status === 'IMPEDIDO' && (
-                                <div className="mt-4 space-y-4"><textarea className="w-full p-3 border-2 border-red-300 rounded-2xl text-sm font-black uppercase" placeholder="DESCREVA O MOTIVO..." rows="3" value={activeAction.problemReport || ''} onChange={e => setActiveAction({ ...activeAction, problemReport: e.target.value })} /><PhotoUpload label="FOTO EVIDÊNCIA" preview={activeAction.photoProblem} onCapture={async f => setActiveAction({ ...activeAction, photoProblem: await processPhoto(f) })} /></div>
+                                <div className="mt-4 space-y-4"><textarea className="w-full p-3 border-2 border-red-300 rounded-2xl text-sm font-black uppercase" placeholder="DESCREVA O MOTIVO..." rows="3" value={activeAction.problemReport || ''} onChange={e => setActiveAction({ ...activeAction, problemReport: e.target.value })} /><PhotoUpload label="FOTO EVIDÊNCIA" preview={activeAction.photoProblem} onCapture={async f => setActiveAction({ ...activeAction, photoProblem: await processPhoto(f, 'IMPEDIMENTO') })} /></div>
                             )}
                         </Card>
                         <Card className="border-2 border-audit-600 bg-emerald-50">
                             <Label required>3 Fotos de Antes</Label>
                             <div className="grid grid-cols-3 gap-2 mb-2">
-                                {[0, 1, 2].map(i => <PhotoUpload key={i} label={`F${i + 1}`} preview={activeAction.photosBefore?.[i]} onCapture={async f => { let list = [...(activeAction.photosBefore || [])]; list[i] = await processPhoto(f); setActiveAction({ ...activeAction, photosBefore: list }); }} />)}
+                                {[0, 1, 2].map(i => <PhotoUpload key={i} label={`F${i + 1}`} preview={activeAction.photosBefore?.[i]} onCapture={async f => { let list = [...(activeAction.photosBefore || [])]; list[i] = await processPhoto(f, `ANTES_${i + 1}`); setActiveAction({ ...activeAction, photosBefore: list }); }} />)}
                             </div>
                             {activeAction.status === 'IMPEDIDO' ? (
                                 <button disabled={!activeAction.species || !activeAction.problemReport || !activeAction.photoProblem} onClick={async () => {
@@ -496,28 +864,50 @@
                                     setView('dashboard');
                                 }} className="w-full mt-4 py-6 rounded-3xl bg-red-600 text-white font-black uppercase text-xl shadow-lg disabled:opacity-50">Registrar Impedimento</button>
                             ) : (
-                                <button disabled={!activeAction.species || !activeAction.cap || !activeAction.height || !activeAction.pruningTypes?.length || (isOsRequired && !activeAction.osId) || (activeAction.photosBefore?.filter(p => p).length < 3)} onClick={() => {
-                                    const treeId = generateTreeId(activeAction.species, activeAction.cap, gps.lat, gps.lng);
+                                <button disabled={!activeAction.species || !activeAction.cap || !activeAction.height || (!isCorteFixo && !activeAction.pruningTypes?.length) || (isOsRequired && !activeAction.osId) || (activeAction.photosBefore?.filter(p => p).length < 3)} onClick={() => {
+                                    try {
+                                        const now = Date.now();
+                                        const treeId = generateTreeId(activeAction.species, activeAction.cap, gps.lat, gps.lng);
+                                        const duplicate = logs.find(l => l.treeId === treeId && l.type === 'tree');
+                                        let newActionState = null;
 
-                                    // ✅ VERIFICAR DUPLICATA
-                                    const duplicate = logs.find(l => l.treeId === treeId && l.type === 'tree');
-                                    if (duplicate) {
-                                        if (!confirm(`⚠️ ALERTA DE DUPLICATA!\n\nID: ${treeId}\nEspécie: ${activeAction.species}\n\nEsta árvore já foi registrada!\n\nProsseguir mesmo assim?`)) {
-                                            return;
+                                        if (duplicate) {
+                                            const msg = `⚠️ ÁRVORE JÁ REGISTRADA HOJE!\n\nID: ${treeId}\nEspécie: ${activeAction.species}\n\nO que deseja fazer?`;
+                                            if (confirm(msg + "\n\n[OK] = CONTINUAR O SERVIÇO ANTERIOR (Não duplica contagem)\n[CANCELAR] = É OUTRA ÁRVORE IGUAL (Duplica contagem)")) {
+                                                newActionState = {
+                                                    ...activeAction,
+                                                    ...duplicate,
+                                                    photosBefore: activeAction.photosBefore?.length ? activeAction.photosBefore : duplicate.photosBefore,
+                                                    isContinuation: true,
+                                                    executionStartTime: now,
+                                                    formDurationSec: (duplicate.formDurationSec || 0) + Math.floor((now - activeAction.startTime) / 1000),
+                                                    treeCoords: `${gps.lat},${gps.lng}`
+                                                };
+                                                setLogs(logs.filter(l => l.treeId !== treeId));
+                                            }
                                         }
-                                    }
 
-                                    const now = Date.now();
-                                    setActiveAction({
-                                        ...activeAction,
-                                        treeId,
-                                        type: 'tree',
-                                        executionStartTime: now,
-                                        formDurationSec: Math.floor((now - activeAction.startTime) / 1000),
-                                        desc: `${activeAction.species} [${activeAction.osId || 'ROTINA'}]`,
-                                        treeCoords: `${gps.lat},${gps.lng}`
-                                    });
-                                    setView('active_service');
+                                        if (!newActionState) {
+                                            newActionState = {
+                                                ...activeAction,
+                                                treeId,
+                                                type: 'tree',
+                                                executionStartTime: now,
+                                                formDurationSec: Math.floor((now - activeAction.startTime) / 1000),
+                                                desc: `${activeAction.species} [${activeAction.osId || (activeAction.pruningTypes?.[0] || 'MANEJO')}]`,
+                                                treeCoords: `${gps.lat},${gps.lng}`,
+                                                pruningTypes: activeAction.pruningTypes || []
+                                            };
+                                        }
+
+                                        if (!newActionState.desc) newActionState.desc = `${newActionState.species || 'ÁRVORE'} (SEM DESC)`;
+                                        setActiveAction(newActionState);
+                                        setView('active_service');
+
+                                    } catch (err) {
+                                        alert("ERRO CRÍTICO AO INICIAR: " + err.message);
+                                        console.error(err);
+                                    }
                                 }} className="w-full mt-4 py-6 rounded-3xl bg-audit-600 text-white font-black uppercase text-xl shadow-lg disabled:opacity-50">Iniciar Manejo</button>
                             )}
                         </Card>
@@ -526,6 +916,10 @@
             }
 
             if (view === 'active_service') {
+                if (!activeAction) {
+                    setTimeout(() => setView('dashboard'), 0);
+                    return null;
+                }
                 const totalElapsed = elapsed - (activeAction.totalPausedSeconds || 0);
                 return (
                     <div className="p-6 screen-fade flex flex-col min-h-screen no-scrollbar">
@@ -536,7 +930,7 @@
                             <Card className="border-2 border-audit-900 shadow-xl">
                                 <Label required>3 Fotos de Depois</Label>
                                 <div className="grid grid-cols-3 gap-2 mb-2">
-                                    {[0, 1, 2].map(i => <PhotoUpload key={i} label={`F${i + 1}`} preview={activeAction.photosAfter?.[i]} onCapture={async f => { let list = [...(activeAction.photosAfter || [])]; list[i] = await processPhoto(f); setActiveAction({ ...activeAction, photosAfter: list }); }} />)}
+                                    {[0, 1, 2].map(i => <PhotoUpload key={i} label={`F${i + 1}`} preview={activeAction.photosAfter?.[i]} onCapture={async f => { let list = [...(activeAction.photosAfter || [])]; list[i] = await processPhoto(f, `DEPOIS_${i + 1}`); setActiveAction({ ...activeAction, photosAfter: list }); }} />)}
                                 </div>
                                 <button disabled={(activeAction.photosAfter?.filter(p => p).length < 3)} onClick={async () => {
                                     const now = Date.now();
@@ -576,7 +970,7 @@
                             {isOther && (
                                 <div className="mb-4"><Label required>Motivação Detalhada</Label><textarea className="w-full p-3 border-2 border-amber-300 rounded-2xl text-sm font-black uppercase" rows="3" placeholder="DESCREVA O MOTIVO..." value={activeAction.customPauseReason || ''} onChange={e => setActiveAction({ ...activeAction, customPauseReason: e.target.value })} /></div>
                             )}
-                            <PhotoUpload label="FOTO PAUSA" onCapture={async f => setActiveAction({ ...activeAction, tempPausePhoto: await processPhoto(f) })} preview={activeAction?.tempPausePhoto} />
+                            <PhotoUpload label="FOTO PAUSA" onCapture={async f => setActiveAction({ ...activeAction, tempPausePhoto: await processPhoto(f, 'PAUSA') })} preview={activeAction?.tempPausePhoto} />
                         </Card>
                         <button disabled={!activeAction?.tempPauseReason || !activeAction?.tempPausePhoto || (isOther && !activeAction.customPauseReason)} onClick={() => { const now = Date.now(); setActiveAction({ ...activeAction, type: activeAction?.type || 'pause', isPaused: true, pauseStartTime: now, startTime: activeAction?.startTime || now, pauseCoords: `${gps.lat},${gps.lng}` }); setPauseElapsed(0); setView('active_pause_screen'); }} className="w-full py-6 rounded-3xl bg-amber-600 text-white font-black text-xl uppercase shadow-xl disabled:opacity-50">Confirmar Pausa</button>
                         <button onClick={() => setView(activeAction.type === 'tree' ? 'active_service' : 'dashboard')} className="w-full p-5 text-slate-400 font-black uppercase text-[10px] tracking-widest underline decoration-dotted">Voltar</button>
@@ -612,63 +1006,97 @@
                     <button disabled={isExporting} onClick={async () => {
                         setIsExporting(true);
                         try {
+                            const safePlaca = (shift?.placa || 'SEM_PLACA').replace(/[^a-zA-Z0-9]/g, '');
+                            const journeyDate = shift.journeyDate ? shift.journeyDate.replace(/\//g, '-') : 'DATA_DESCONHECIDA';
+
+                            // 1. Prioridade: Upload do JSON de Dados (Leve e Essencial)
+                            try {
+                                const jsonBlob = new Blob([JSON.stringify({ shift, logs }, null, 2)], { type: 'application/json' });
+                                const jsonName = `DADOS_TURNO/${journeyDate}_${safePlaca}.json`;
+                                await supabaseClient.storage.from('backups_zip').upload(jsonName, jsonBlob, { upsert: true });
+                            } catch (err) { console.warn("Erro ao salvar JSON na nuvem:", err); }
+
+                            // 2. Geração Otimizada do ZIP (Sem estourar memória)
                             const zip = new JSZip();
                             zip.file("RELATORIO_DETALHADO.json", JSON.stringify({ shift, logs }, null, 2));
-                            const imgs = zip.folder("EVIDENCIAS_GEORREFERENCIADAS");
-                            if (shift.foto_unificada) imgs.file("01_ABERTURA.jpg", shift.foto_unificada.base64.split(',')[1], { base64: true });
+                            const imgs = zip.folder("EVIDENCIAS");
+
+                            // Adicionar foto de abertura se existir
+                            if (shift.foto_unificada?.base64) {
+                                imgs.file("01_ABERTURA.jpg", shift.foto_unificada.base64.split(',')[1], { base64: true });
+                            }
+
+                            // Adicionar todas as evidências
                             logs.forEach((l, idx) => {
-                                if (l.tempPausePhoto) imgs.file(`LOG_${idx}_PAUSA.jpg`, l.tempPausePhoto.base64.split(',')[1], { base64: true });
-                                if (l.photoProblem) imgs.file(`LOG_${idx}_IMPEDIMENTO.jpg`, l.photoProblem.base64.split(',')[1], { base64: true });
-                                l.photosBefore?.forEach((p, i) => { if (p) imgs.file(`ARV_${idx}_ANTES_${i + 1}.jpg`, p.base64.split(',')[1], { base64: true }) });
-                                l.photosAfter?.forEach((p, i) => { if (p) imgs.file(`ARV_${idx}_DEPOIS_${i + 1}.jpg`, p.base64.split(',')[1], { base64: true }) });
+                                if (l.tempPausePhoto?.base64) imgs.file(`LOG_${idx}_PAUSA.jpg`, l.tempPausePhoto.base64.split(',')[1], { base64: true });
+                                if (l.photoProblem?.base64) imgs.file(`LOG_${idx}_IMPEDIMENTO.jpg`, l.photoProblem.base64.split(',')[1], { base64: true });
+                                l.photosBefore?.forEach((p, i) => { if (p?.base64) imgs.file(`ARV_${idx}_ANTES_${i + 1}.jpg`, p.base64.split(',')[1], { base64: true }) });
+                                l.photosAfter?.forEach((p, i) => { if (p?.base64) imgs.file(`ARV_${idx}_DEPOIS_${i + 1}.jpg`, p.base64.split(',')[1], { base64: true }) });
                             });
-                            const blob = await zip.generateAsync({ type: "blob" });
 
-                            // Upload para Supabase Storage
+                            // Gerar ZIP com compressão LEVE (STORE) para evitar travamento do navegador
+                            const blob = await zip.generateAsync({
+                                type: "blob",
+                                compression: "STORE",  // Sem compressão pesada
+                                streamFiles: true
+                            });
+
+                            // 3. Upload do ZIP para Nuvem (Backup Final)
                             try {
-                                const fileName = `Backup_${new Date().toISOString().replace(/[:.]/g, '-')}.zip`;
-                                await supabaseClient.storage.from('backups_zip').upload(fileName, blob);
-                            } catch (err) { console.error("Erro no backup nuvem", err); }
+                                const fileName = `Backup_Completo_${journeyDate}_${safePlaca}.zip`;
+                                await supabaseClient.storage.from('backups_zip').upload(fileName, blob, { upsert: true });
+                            } catch (err) { console.error("Erro no backup nuvem ZIP", err); }
 
-                            // Download local
+                            // 4. Download Local Seguro
                             const a = document.createElement("a");
                             a.href = URL.createObjectURL(blob);
-                            a.download = `RAD_MCR_${new Date().toISOString().slice(0, 10)}.zip`;
+                            a.download = `RAD_MCR_${journeyDate}_${safePlaca}.zip`;
                             a.click();
 
                             setDownloadedBlob(blob);
                             setView('download_confirm');
-                        } catch (e) { alert("Erro: " + e.message); } finally { setIsExporting(false); }
-                    }} className="w-full py-6 rounded-3xl bg-audit-600 text-white font-black text-xl shadow-xl mt-2 uppercase flex items-center justify-center gap-3 disabled:opacity-50"><i className={isExporting ? "fas fa-spinner fa-spin" : "fas fa-download"}></i> {isExporting ? "GERANDO E ENVIANDO..." : "BAIXAR ZIP"}</button>
+                        } catch (e) {
+                            alert("Erro ao Gerar ZIP: " + e.message + "\n\nTente baixar apenas o JSON se persistir.");
+                            console.error(e);
+                        } finally { setIsExporting(false); }
+                    }} className="w-full py-6 rounded-3xl bg-audit-600 text-white font-black text-xl shadow-xl mt-2 uppercase flex items-center justify-center gap-3 disabled:opacity-50"><i className={isExporting ? "fas fa-spinner fa-spin" : "fas fa-cloud-upload-alt"}></i> {isExporting ? "ENVIANDO DADOS..." : "FINALIZAR E ENVIAR"}</button>
+
                     <button onClick={() => setView('dashboard')} className="mt-8 text-slate-300 font-black uppercase text-[10px] underline">Voltar</button>
                 </div>
             );
 
             // ✅ TELA DE CONFIRMAÇÃO DE DOWNLOAD
-            if (view === 'download_confirm') return (
-                <div className="p-6 screen-fade flex items-center justify-center min-h-screen">
-                    <div className="bg-white rounded-[2rem] p-10 max-w-md text-center shadow-2xl">
-                        <i className="fas fa-check-circle text-emerald-600 text-7xl mb-6"></i>
-                        <h2 className="text-3xl font-black text-slate-900 uppercase mb-4">Download Iniciado</h2>
+            if (view === 'download_confirm') {
+                // Marca saída como segura pois finalizou o turno
+                localStorage.setItem('mcr_safety_exit', 'safe');
 
-                        <div className="bg-amber-50 border-2 border-amber-500 p-6 rounded-2xl mb-8">
-                            <p className="font-black text-amber-900 text-sm mb-2">⚠️ CONFIRME O RECEBIMENTO</p>
-                            <p className="text-xs text-amber-800 leading-relaxed">Verifique se o arquivo ZIP foi BAIXADO antes de finalizar o turno!</p>
+                return (
+                    <div className="min-h-screen bg-emerald-600 flex flex-col items-center justify-center p-8 text-center text-white screen-fade">
+                        <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center mb-6 shadow-2xl animate-bounce">
+                            <i className="fas fa-check text-4xl text-emerald-600"></i>
                         </div>
+                        <h1 className="text-4xl font-black mb-2 uppercase">Turno Finalizado!</h1>
+                        <p className="font-medium opacity-80 mb-8 max-w-xs mx-auto">Os dados foram sincronizados com sucesso. O arquivo de backup foi gerado e salvo na nuvem.</p>
 
-                        <button onClick={async () => { await finalizeAndClearAll(); }} className="w-full bg-emerald-600 text-white py-6 rounded-2xl font-black text-xl uppercase shadow-xl mb-4">✅ RECEBI O ARQUIVO - FINALIZAR</button>
+                        <div className="space-y-3 w-full max-w-sm">
+                            <button onClick={() => {
+                                const a = document.createElement("a");
+                                a.href = URL.createObjectURL(downloadedBlob);
+                                a.download = `RAD_MCR_REBACKUP.zip`;
+                                a.click();
+                            }} className="w-full py-4 rounded-xl bg-white/20 hover:bg-white/30 font-bold uppercase transition backdrop-blur-sm border border-white/30">Baixar Novamente</button>
 
-                        <button onClick={() => {
-                            const a = document.createElement("a");
-                            a.href = URL.createObjectURL(downloadedBlob);
-                            a.download = `RAD_MCR_${new Date().toISOString().slice(0, 10)}_REENVIO.zip`;
-                            a.click();
-                        }} className="w-full bg-blue-600 text-white py-5 rounded-2xl font-black uppercase shadow-lg">🔄 BAIXAR NOVAMENTE</button>
-
-                        <button onClick={() => setView('end_day')} className="mt-6 text-slate-300 font-black uppercase text-[10px] underline">Voltar</button>
+                            <button onClick={async () => {
+                                // Limpeza Segura
+                                await idbKeyval.clear();
+                                localStorage.removeItem('mcr_safety_exit'); // Remove flag de alerta
+                                window.location.reload();
+                            }} className="w-full py-4 rounded-xl bg-white text-emerald-700 font-black uppercase shadow-xl hover:scale-105 transition">Iniciar Novo Turno</button>
+                        </div>
+                        <p className="mt-8 text-[10px] opacity-60 font-mono">ID: {shift?.id?.split('-')[0]}</p>
                     </div>
-                </div>
-            );
+                );
+            }
 
             if (view === 'loading') return <div className="h-screen bg-audit-900 flex items-center justify-center text-white font-black italic animate-pulse">RAD PODA v21...</div>;
             return null;
