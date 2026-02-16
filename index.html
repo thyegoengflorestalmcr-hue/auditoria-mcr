@@ -102,8 +102,8 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
 
-        const SUPABASE_URL = "https://kqzxrywfrtbyxwgvggsd.supabase.co";
-        const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtxenhyeXdmcnRieXh3Z3ZnZ3NkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg2NjE4NjksImV4cCI6MjA4NDIzNzg2OX0.2XCcj9dFQqMHooUmF1D1Yuy9CvKPvabMO0Ai3A_Mto8";
+        const SUPABASE_URL = "https://ptndniunajiwqngqtgeq.supabase.co";
+        const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB0bmRuaXVuYWppd3FuZ3F0Z2VxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA5MjM2MDAsImV4cCI6MjA4NjQ5OTYwMH0.gIXVNThb3ICaU1cQUPsDs4HvOocM-rh2GFw5kExmkJo";
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
         const TIPOS_PODA_DATA = [
@@ -261,14 +261,123 @@
                             if (error) throw new Error(`Erro Upload: ${error.message}`);
                         }
 
-                        // --- 2. INSERT NO BANCO ---
-                        else if (item.type === 'DB_INSERT') {
-                            const { table, data } = item.payload;
-                            const { error } = await supabaseClient
-                                .from(table)
-                                .insert(data);
+                        // --- 2. INSERT OU UPDATE NO BANCO (COM AUTO-CORREÇÃO LEGADO) ---
+                        else if (item.type === 'DB_INSERT' || item.type === 'DB_UPDATE') {
+                            let { table, data, id } = item.payload;
 
-                            if (error) throw new Error(`Erro Banco Insert: ${error.message} (Tabela: ${table})`);
+                            // AUTO-CORREÇÃO: Mapeamento para novas tabelas do Gestor
+                            if (table === 'tb_turnos') table = 'shifts'; // Mapeia antigo para novo
+                            if (table === 'tb_manejos') table = 'logs';  // Mapeia antigo para novo
+                            if (table === 'tb_pausas') table = 'logs';   // Pausas agora são logs com status 'PAUSA' (ou tabela separada se preferir, mas logs é o padrão do Gestor)
+
+                            let error;
+
+                            // Tratamento Específico para tabela 'shifts' (Jornadas)
+                            if (table === 'shifts') {
+                                // Mapeia campos do payload antigo (tb_turnos) para o novo (shifts)
+                                const mappedData = {
+                                    id: data.id, // Se tiver ID fixo
+                                    id: data.id, // Se tiver ID fixo
+                                    journey_date: (() => {
+                                        if (!data.inicio_jornada) return new Date().toISOString().split('T')[0];
+                                        if (data.inicio_jornada.includes('T')) return data.inicio_jornada.split('T')[0];
+                                        // Fallback para DD/MM/YYYY
+                                        const parts = data.inicio_jornada.split('/');
+                                        if (parts.length === 3) return `${parts[2]}-${parts[1]}-${parts[0]}`;
+                                        return new Date().toISOString().split('T')[0];
+                                    })(),
+                                    rt: data.rt_responsavel,
+                                    operador: data.equipe_operador,
+                                    journey_start_time: data.inicio_jornada ? data.inicio_jornada.split('T')[1] : null,
+                                    dds_image_path: data.img_dds_url
+                                };
+                                // Filtra undefined
+                                Object.keys(mappedData).forEach(key => mappedData[key] === undefined && delete mappedData[key]);
+
+                                if (item.type === 'DB_INSERT') {
+                                    const res = await supabaseClient.from(table).insert(mappedData);
+                                    error = res.error;
+                                } else {
+                                    // Update normal
+                                    const res = await supabaseClient.from(table).update(mappedData).eq('id', id);
+                                    error = res.error;
+                                }
+                            }
+
+                            // Tratamento Específico para tabela 'logs' (Manejos)
+                            else if (table === 'logs') {
+                                // Se for PAUSA, ignora neste momento ou salva em tabela de pausa se existisse.
+                                // O Gestor lê 'logs' para árvores.
+                                if (data.status === 'PAUSA') {
+                                    // Opcional: Implementar tabela de pausas no Supabase se precisar visualizar.
+                                    // Por enquanto, foca nas árvores.
+                                    console.log("Skipping PAUSA sync for now (focus on trees)");
+                                    setIsSyncing(false);
+                                    setSyncQueue(syncQueue.slice(1)); // Remove da fila para não travar
+                                    await idbKeyval.set('mcr_sync_queue_v21', syncQueue.slice(1));
+                                    return;
+                                }
+
+                                const mappedData = {
+                                    shift_id: data.id_turno,
+                                    tree_desc: data.especie || 'NÃO IDENTIFICADA',
+                                    os_id: data.protocolo_os,
+                                    coords: `${data.coords_lat}, ${data.coords_lng}`,
+                                    start_time: data.inicio_form,
+                                    end_time: data.fim_execucao,
+                                    execution_duration_sec: data.duracao_efetiva_seg,
+                                    form_duration_sec: (data.duracao_total_seg - data.duracao_efetiva_seg),
+                                    total_paused_seconds: 0, // Simplificação
+                                    pruning_types: data.tipos_poda,
+                                    demand_source: data.origem_demanda,
+                                    status: data.status,
+                                    cap: data.cap,
+                                    height: data.altura,
+                                    photos: {} // Será preenchido abaixo
+                                };
+
+                                // Reconstrói objeto de fotos para o padrão do Gestor: { "A1": url, "D1": url ... }
+                                // O payload original tem arrays fotos_antes e fotos_depois
+                                if (data.fotos_antes && Array.isArray(data.fotos_antes)) {
+                                    data.fotos_antes.forEach((url, i) => {
+                                        // Recupera URL pública se for caminho relativo
+                                        const fullUrl = url.startsWith('http') ? url : supabaseClient.storage.from('evidencias').getPublicUrl(url).data.publicUrl;
+                                        mappedData.photos[`A${i + 1}`] = fullUrl;
+                                    });
+                                }
+                                if (data.fotos_depois && Array.isArray(data.fotos_depois)) {
+                                    data.fotos_depois.forEach((url, i) => {
+                                        const fullUrl = url.startsWith('http') ? url : supabaseClient.storage.from('evidencias').getPublicUrl(url).data.publicUrl;
+                                        mappedData.photos[`D${i + 1}`] = fullUrl;
+                                    });
+                                }
+                                if (data.foto_impedimento) {
+                                    const url = data.foto_impedimento;
+                                    const fullUrl = url.startsWith('http') ? url : supabaseClient.storage.from('evidencias').getPublicUrl(url).data.publicUrl;
+                                    mappedData.photos['IMP'] = fullUrl;
+                                }
+
+                                if (item.type === 'DB_INSERT') {
+                                    const res = await supabaseClient.from(table).insert(mappedData);
+                                    error = res.error;
+                                } else {
+                                    // DB_UPDATE
+                                    const res = await supabaseClient.from(table).update(mappedData).eq('id', id);
+                                    error = res.error;
+                                }
+                            }
+                            else {
+                                // Fallback genérico para outras tabelas
+                                if (item.type === 'DB_INSERT') {
+                                    const res = await supabaseClient.from(table).insert(data);
+                                    error = res.error;
+                                } else {
+                                    const res = await supabaseClient.from(table).update(data).eq('id', id);
+                                    error = res.error;
+                                }
+                            }
+
+                            if (error) throw new Error(`Erro Banco ${item.type}: ${error.message} (Tabela: ${table})`);
                         }
 
                         // --- 3. SUCESSO! REMOVE DA FILA ---
@@ -453,14 +562,15 @@
                     addToSyncQueue('IMAGE_UPLOAD', {
                         path: storagePath,
                         base64: base64, // Usando base64 para persistência no IndexedDB
-                        bucket: 'fotos_campo'
+                        bucket: 'evidencias'
                     });
 
                     // Retorna objeto padronizado para o estado local
                     return {
+                        base64: base64, // FIX: Padronizando nome da propriedade para o Componente PhotoUpload
                         localPreview: base64,
                         storagePath: storagePath,
-                        publicUrl: supabaseClient.storage.from('fotos_campo').getPublicUrl(storagePath).data.publicUrl,
+                        publicUrl: supabaseClient.storage.from('evidencias').getPublicUrl(storagePath).data.publicUrl,
                         metadata: {
                             ...metadata,
                             originalDate: metadata.dateTime,
@@ -496,6 +606,35 @@
                 }
 
                 // Se for MANEJO (Árvore)
+                // 1. TENTA RECUPERAR GPS DA FOTO (PRIORIDADE TOTAL)
+                let finalLat = gps.lat;
+                let finalLng = gps.lng;
+                let finalTime = new Date(logItem.startTime || Date.now()).toISOString();
+
+                // Procura GPS nas fotos (ordem de prioridade: Antes > Depois > Impedimento)
+                const allPhotos = [
+                    ...(logItem.photosBefore || []),
+                    ...(logItem.photosAfter || []),
+                    logItem.photoProblem
+                ].filter(p => p && p.metadata);
+
+                const photoWithGps = allPhotos.find(p => p.metadata.gps_lat && p.metadata.gps_lng);
+
+                if (photoWithGps) {
+                    finalLat = photoWithGps.metadata.gps_lat;
+                    finalLng = photoWithGps.metadata.gps_lng;
+                    console.log(`📍 USANDO GPS DA FOTO: ${finalLat}, ${finalLng}`);
+                } else {
+                    console.log(`📍 USANDO GPS DO DISPOSITIVO (FOTO SEM EXIF): ${finalLat}, ${finalLng}`);
+                }
+
+                // Tenta recuperar Data da Foto Original
+                if (photoWithGps && photoWithGps.metadata.originalDate) {
+                    // Tenta converter formato EXIF "YYYY:MM:DD HH:MM:SS" ou ISO
+                    const d = new Date(photoWithGps.metadata.originalDate);
+                    if (!isNaN(d.getTime())) finalTime = d.toISOString();
+                }
+
                 const manejoPayload = {
                     id_turno: shift.id_banco,
                     tree_id_md5: logItem.treeId,
@@ -512,7 +651,7 @@
                     destinacao_galhos: logItem.destinacaoGalhos,
 
                     // Tempos e Auditoria
-                    inicio_form: new Date(logItem.startTime).toISOString(),
+                    inicio_form: finalTime, // USA HORA DA FOTO SE TIVER
                     inicio_execucao: new Date(logItem.executionStartTime).toISOString(),
                     fim_execucao: new Date(logItem.endTime).toISOString(),
                     duracao_total_seg: logItem.durationSec,
@@ -527,10 +666,10 @@
                     status: logItem.status,
                     motivo_impedimento: logItem.problemReport,
 
-                    // GEO POSTGIS 
-                    coords_lat: gps.lat,
-                    coords_lng: gps.lng,
-                    endereco_aproximado: 'Captura via GPS'
+                    // GEO POSTGIS (PRIORIDADE FOTO)
+                    coords_lat: finalLat,
+                    coords_lng: finalLng,
+                    endereco_aproximado: photoWithGps ? '📍 GPS DA FOTO (EXIF)' : '📱 GPS DO DISPOSITIVO'
                 };
 
                 addToSyncQueue('DB_INSERT', { table: 'tb_manejos', data: manejoPayload });
@@ -620,7 +759,15 @@
 
                             // 3. Insere no Banco (Síncrono para garantir ID)
                             try {
-                                const { data, error } = await supabaseClient.from('tb_turnos').insert(turnoPayload).select().single();
+                                const journeyDateISO = now.toISOString().split('T')[0];
+                                const { data, error } = await supabaseClient.from('shifts').insert({
+                                    journey_date: journeyDateISO,
+                                    rt: shift.rt,
+                                    operador: shift.operador,
+                                    journey_start_time: now.toLocaleTimeString(),
+                                    dds_image_path: shift.foto_unificada?.storagePath // Caminho relativo, o Gestor resolve ou o Sync converte
+                                }).select().single();
+
                                 if (error) throw error;
                                 if (data) newShiftState.id_banco = data.id; // Guarda ID do banco para relacionar manejos
                             } catch (e) {
@@ -628,6 +775,7 @@
                                 // Se falhar (offline), gera um ID temporário e adiciona à fila de sync para DEPOIS
                                 const tempId = crypto.randomUUID();
                                 newShiftState.id_banco = tempId;
+                                // Adiciona à fila usando formato antigo, o processador de fila vai converter para 'shifts'
                                 addToSyncQueue('DB_INSERT', { table: 'tb_turnos', data: { ...turnoPayload, id: tempId } });
                             }
 
@@ -852,7 +1000,14 @@
                         <Card className="border-2 border-audit-600 bg-emerald-50">
                             <Label required>3 Fotos de Antes</Label>
                             <div className="grid grid-cols-3 gap-2 mb-2">
-                                {[0, 1, 2].map(i => <PhotoUpload key={i} label={`F${i + 1}`} preview={activeAction.photosBefore?.[i]} onCapture={async f => { let list = [...(activeAction.photosBefore || [])]; list[i] = await processPhoto(f, `ANTES_${i + 1}`); setActiveAction({ ...activeAction, photosBefore: list }); }} />)}
+                                {[0, 1, 2].map(i => <PhotoUpload key={i} label={`F${i + 1}`} preview={activeAction.photosBefore?.[i]} onCapture={async f => {
+                                    const processed = await processPhoto(f, `ANTES_${i + 1}`);
+                                    setActiveAction(prev => {
+                                        const list = [...(prev.photosBefore || [])];
+                                        list[i] = processed;
+                                        return { ...prev, photosBefore: list };
+                                    });
+                                }} />)}
                             </div>
                             {activeAction.status === 'IMPEDIDO' ? (
                                 <button disabled={!activeAction.species || !activeAction.problemReport || !activeAction.photoProblem} onClick={async () => {
@@ -930,7 +1085,14 @@
                             <Card className="border-2 border-audit-900 shadow-xl">
                                 <Label required>3 Fotos de Depois</Label>
                                 <div className="grid grid-cols-3 gap-2 mb-2">
-                                    {[0, 1, 2].map(i => <PhotoUpload key={i} label={`F${i + 1}`} preview={activeAction.photosAfter?.[i]} onCapture={async f => { let list = [...(activeAction.photosAfter || [])]; list[i] = await processPhoto(f, `DEPOIS_${i + 1}`); setActiveAction({ ...activeAction, photosAfter: list }); }} />)}
+                                    {[0, 1, 2].map(i => <PhotoUpload key={i} label={`F${i + 1}`} preview={activeAction.photosAfter?.[i]} onCapture={async f => {
+                                        const processed = await processPhoto(f, `DEPOIS_${i + 1}`);
+                                        setActiveAction(prev => {
+                                            const list = [...(prev.photosAfter || [])];
+                                            list[i] = processed;
+                                            return { ...prev, photosAfter: list };
+                                        });
+                                    }} />)}
                                 </div>
                                 <button disabled={(activeAction.photosAfter?.filter(p => p).length < 3)} onClick={async () => {
                                     const now = Date.now();
@@ -1007,7 +1169,147 @@
                         setIsExporting(true);
                         try {
                             const safePlaca = (shift?.placa || 'SEM_PLACA').replace(/[^a-zA-Z0-9]/g, '');
-                            const journeyDate = shift.journeyDate ? shift.journeyDate.replace(/\//g, '-') : 'DATA_DESCONHECIDA';
+                            const journeyDate = (() => {
+                                if (!shift.journeyDate) return new Date().toISOString().split('T')[0];
+                                const parts = shift.journeyDate.split('/');
+                                if (parts.length === 3) return `${parts[2]}-${parts[1]}-${parts[0]}`;
+                                return new Date().toISOString().split('T')[0];
+                            })();
+
+                            // ========================================
+                            // 🚀 ENVIO PARA BANCO DE DADOS SUPABASE
+                            // ========================================
+                            // ========================================
+                            // 🚀 CORREÇÃO: ENVIO INTELIGENTE (UPSERT)
+                            // ========================================
+                            let shiftId = shift.id_banco; // Tenta usar o ID guardado no início do dia
+
+                            try {
+                                console.log('📤 Enviando dados para Supabase...');
+
+                                // 1. VERIFICAÇÃO/ATUALIZAÇÃO DO SHIFT
+                                // Se não tivermos o ID localmente, buscamos no banco para evitar erro 409
+                                if (!shiftId) {
+                                    const { data: existingShift } = await supabaseClient
+                                        .from('shifts')
+                                        .select('id')
+                                        .eq('journey_date', journeyDate)
+                                        .eq('rt', shift.rt)
+                                        .eq('operador', shift.operador)
+                                        .maybeSingle();
+
+                                    if (existingShift) {
+                                        shiftId = existingShift.id;
+                                    }
+                                }
+
+                                const shiftPayload = {
+                                    rt: shift.rt,
+                                    tst: shift.tst || null,
+                                    operador: shift.operador,
+                                    placa: shift.placa,
+                                    auxiliares: shift.auxiliares || [],
+                                    placa_aux: shift.placaAux || null,
+                                    dds_image_path: shift.foto_unificada?.storagePath || null, // Usa o caminho do Storage, não base64
+                                    journey_start_time: new Date(shift.journeyStartTime).toLocaleTimeString('pt-BR', { hour12: false }),
+                                    journey_date: journeyDate,
+                                    status: 'FECHADO' // Marca como fechado
+                                };
+
+                                if (shiftId) {
+                                    // ATUALIZA (UPDATE) se já existe
+                                    const { error: updateError } = await supabaseClient
+                                        .from('shifts')
+                                        .update(shiftPayload)
+                                        .eq('id', shiftId);
+
+                                    if (updateError) throw updateError;
+                                    console.log('✅ Shift atualizado:', shiftId);
+                                } else {
+                                    // INSERE (INSERT) se não existe
+                                    const { data: newShift, error: insertError } = await supabaseClient
+                                        .from('shifts')
+                                        .insert([shiftPayload])
+                                        .select()
+                                        .single();
+
+                                    if (insertError) throw insertError;
+                                    shiftId = newShift.id;
+                                    console.log('✅ Shift criado:', shiftId);
+                                }
+
+                                // 2. Inserir LOGS (Árvores e Pausas)
+                                if (logs && logs.length > 0) {
+                                    const logsToInsert = logs.map(log => {
+                                        const [lat, lng] = (log.coords || ',').split(',');
+
+                                        // Prepara objeto de fotos corrigido para o Gestor ler
+                                        const photosJson = {};
+                                        // Mapeia ANTES
+                                        log.photosBefore?.forEach((item, i) => {
+                                            if (item?.storagePath) photosJson[`A${i + 1}`] = supabaseClient.storage.from('evidencias').getPublicUrl(item.storagePath).data.publicUrl;
+                                        });
+                                        // Mapeia DEPOIS
+                                        log.photosAfter?.forEach((item, i) => {
+                                            if (item?.storagePath) photosJson[`D${i + 1}`] = supabaseClient.storage.from('evidencias').getPublicUrl(item.storagePath).data.publicUrl;
+                                        });
+                                        // Mapeia IMPEDIMENTO
+                                        if (log.photoProblem?.storagePath) {
+                                            photosJson['IMP'] = supabaseClient.storage.from('evidencias').getPublicUrl(log.photoProblem.storagePath).data.publicUrl;
+                                        }
+
+                                        return {
+                                            shift_id: shiftId,
+                                            type: log.type || 'tree',
+                                            status: log.status || 'OK',
+                                            species: log.species || null,
+                                            cap: log.cap ? parseFloat(log.cap) : null,
+                                            height: log.height ? parseFloat(log.height) : null,
+                                            pruning_types: log.pruningTypes || [],
+                                            demand_source: log.demandSource || null,
+                                            os_id: log.osId || null,
+                                            copel_required: log.copelRequired || 'NÃO',
+                                            start_time: new Date(log.startTime).toISOString(),
+                                            end_time: log.endTime ? new Date(log.endTime).toISOString() : null,
+                                            timestamp: log.timestamp || new Date().toISOString(),
+                                            duration_sec: log.durationSec || null,
+                                            effective_duration_sec: log.effectiveDurationSec || null,
+                                            // FIX: INVERTENDO TEMPOS CONFORME SOLICITADO (DADOS <-> SERRA)
+                                            execution_duration_sec: log.formDurationSec || null, // Recebe o tempo longo (Dados)
+                                            form_duration_sec: log.executionDurationSec || null, // Recebe o tempo curto (Execução)
+                                            total_paused_seconds: log.totalPausedSeconds || 0,
+                                            coords: log.coords || null,
+                                            lat: lat ? parseFloat(lat) : null,
+                                            lng: lng ? parseFloat(lng) : null,
+
+                                            // Pausas e Impedimentos (Texto)
+                                            temp_pause_reason: log.tempPauseReason || null,
+                                            custom_pause_reason: log.customPauseReason || null,
+                                            problem_report: log.problemReport || null,
+
+                                            // CRUCIAL: Manda o JSON de fotos com URLs públicas para o Gestor ler
+                                            photos: photosJson
+                                        };
+                                    });
+
+                                    const { error: logsError } = await supabaseClient
+                                        .from('logs')
+                                        .insert(logsToInsert);
+
+                                    if (logsError) {
+                                        console.error('❌ Erro ao inserir logs:', logsError);
+                                        throw logsError;
+                                    }
+
+                                    console.log(`✅ ${logsToInsert.length} logs inseridos com sucesso!`);
+                                }
+
+                                alert(`✅ DADOS SINCRONIZADOS COM SUCESSO!\n\nTurno atualizado e ${logs.length} registros enviados.`);
+
+                            } catch (dbError) {
+                                console.error('❌ Erro no processo:', dbError);
+                                alert(`⚠️ Erro na sincronização: ${dbError.message}\n\nO backup local (ZIP/JSON) será gerado para segurança.`);
+                            }
 
                             // 1. Prioridade: Upload do JSON de Dados (Leve e Essencial)
                             try {
@@ -1018,21 +1320,84 @@
 
                             // 2. Geração Otimizada do ZIP (Sem estourar memória)
                             const zip = new JSZip();
+
+                            // GARANTIA DE INTEGRIDADE DDS: Copia o path da foto unificada para o campo esperado pelo Gestor
+                            if (!shift.dds_image_path && shift.foto_unificada?.storagePath) {
+                                shift.dds_image_path = shift.foto_unificada.storagePath;
+                            }
+
                             zip.file("RELATORIO_DETALHADO.json", JSON.stringify({ shift, logs }, null, 2));
                             const imgs = zip.folder("EVIDENCIAS");
 
-                            // Adicionar foto de abertura se existir
-                            if (shift.foto_unificada?.base64) {
-                                imgs.file("01_ABERTURA.jpg", shift.foto_unificada.base64.split(',')[1], { base64: true });
+                            // FUNÇÃO UNIVERSAL DE RECUPERAÇÃO DE EVIDÊNCIAS (Local -> Nuvem)
+                            const getImageData = async (imgObj) => {
+                                if (!imgObj) return null;
+                                // 1. Tenta memória local (Instantâneo)
+                                const data = imgObj.base64 || imgObj.localPreview;
+                                if (data && data.includes(',')) return data.split(',')[1];
+
+                                // 2. Tenta baixar da Nuvem (Fallback de Segurança)
+                                const path = imgObj.storagePath || imgObj.dds_image_path || imgObj.path;
+                                if (path) {
+                                    try {
+                                        console.log(`🔄 Baixando evidência remota: ${path}...`);
+                                        const { data: blob, error } = await supabaseClient.storage.from('evidencias').download(path);
+                                        if (error) throw error;
+                                        return new Promise((resolve) => {
+                                            const reader = new FileReader();
+                                            reader.onloadend = () => resolve(reader.result.split(',')[1]);
+                                            reader.readAsDataURL(blob);
+                                        });
+                                    } catch (err) {
+                                        console.warn(`⚠️ Imagem não encontrada (Local/Nuvem): ${path}`, err);
+                                        return null;
+                                    }
+                                }
+                                return null;
+                            };
+
+                            // --- 1. FOTO DE ABERTURA (DDS) ---
+                            // Cria objeto compatível com a função universal e aguarda download se precisar
+                            try {
+                                const ddsObj = {
+                                    base64: shift.foto_unificada?.base64,
+                                    localPreview: shift.foto_unificada?.localPreview,
+                                    dds_image_path: shift.dds_image_path // Agora garantido pela linha 1324
+                                };
+                                const ddsBase64 = await getImageData(ddsObj);
+                                if (ddsBase64) {
+                                    imgs.file("01_ABERTURA.jpg", ddsBase64, { base64: true });
+                                } else {
+                                    console.warn("❌ FOTO DDS NÃO ENCONTRADA.");
+                                }
+                            } catch (e) {
+                                console.error("Erro ao processar DDS:", e);
                             }
 
-                            // Adicionar todas as evidências
-                            logs.forEach((l, idx) => {
-                                if (l.tempPausePhoto?.base64) imgs.file(`LOG_${idx}_PAUSA.jpg`, l.tempPausePhoto.base64.split(',')[1], { base64: true });
-                                if (l.photoProblem?.base64) imgs.file(`LOG_${idx}_IMPEDIMENTO.jpg`, l.photoProblem.base64.split(',')[1], { base64: true });
-                                l.photosBefore?.forEach((p, i) => { if (p?.base64) imgs.file(`ARV_${idx}_ANTES_${i + 1}.jpg`, p.base64.split(',')[1], { base64: true }) });
-                                l.photosAfter?.forEach((p, i) => { if (p?.base64) imgs.file(`ARV_${idx}_DEPOIS_${i + 1}.jpg`, p.base64.split(',')[1], { base64: true }) });
-                            });
+                            // Processamento Sequencial para garantir integridade
+                            for (let idx = 0; idx < logs.length; idx++) {
+                                const l = logs[idx];
+
+                                const pPausa = await getImageData(l.tempPausePhoto);
+                                if (pPausa) imgs.file(`LOG_${idx}_PAUSA.jpg`, pPausa, { base64: true });
+
+                                const pImp = await getImageData(l.photoProblem);
+                                if (pImp) imgs.file(`LOG_${idx}_IMPEDIMENTO.jpg`, pImp, { base64: true });
+
+                                if (l.photosBefore) {
+                                    for (let i = 0; i < l.photosBefore.length; i++) {
+                                        const data = await getImageData(l.photosBefore[i]);
+                                        if (data) imgs.file(`ARV_${idx}_ANTES_${i + 1}.jpg`, data, { base64: true });
+                                    }
+                                }
+
+                                if (l.photosAfter) {
+                                    for (let i = 0; i < l.photosAfter.length; i++) {
+                                        const data = await getImageData(l.photosAfter[i]);
+                                        if (data) imgs.file(`ARV_${idx}_DEPOIS_${i + 1}.jpg`, data, { base64: true });
+                                    }
+                                }
+                            }
 
                             // Gerar ZIP com compressão LEVE (STORE) para evitar travamento do navegador
                             const blob = await zip.generateAsync({
