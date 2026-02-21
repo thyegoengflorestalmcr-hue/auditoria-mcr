@@ -147,7 +147,8 @@
             "Uvaia", "Uva-do-japão", "Vassourão-branco"
         ].sort();
 
-        const PAUSE_REASONS = ["Almoço / Refeição", "Chuva / Tempo Ruim", "Quebra de Equipamento", "Logística / Deslocamento", "Interferência de Munícipe", "Abastecimento", "Suspensão Rede (COPEL)", "Outros"];
+        const PAUSE_REASONS = ["Almoço / Refeição", "Chuva / Tempo Ruim", "Quebra de Equipamento", "Interferência de Munícipe", "Abastecimento", "Suspensão Rede (COPEL)", "Outros"];
+        const LOGISTICA_REASONS = ["Deslocamento entre Pontos", "Viagem para Descarte", "Busca de Ferramentas", "Outro"];
 
         // ✅ GERAR ID ÚNICO MD5
         const generateTreeId = (species, cap, lat, lng) => {
@@ -589,19 +590,40 @@
             // --- SISTEMA DE ENVIO SaaS (TABELAS RELACIONAIS) ---
             const pushToSupabase = async (logItem) => {
                 // Se for PAUSA
-                if (logItem.status === 'PAUSA') {
-                    const pausaPayload = {
-                        id_turno: shift.id_banco, // Precisa capturar ID do turno
-                        motivo: logItem.tempPauseReason,
-                        descricao_detalhada: logItem.customPauseReason,
-                        inicio: new Date(logItem.pauseStartTime).toISOString(),
+                if (logItem.status === 'PAUSA' || logItem.type === 'logistics' || logItem.type === 'disposal') {
+                    const extraPayload = {
+                        id_turno: shift.id_banco,
+                        type: logItem.type,
+                        motivo: logItem.tempPauseReason || logItem.type.toUpperCase(),
+                        descricao_detalhada: logItem.customPauseReason || null,
+                        inicio: new Date(logItem.startTime || logItem.pauseStartTime).toISOString(),
                         fim: new Date(logItem.endTime).toISOString(),
                         duracao_seg: logItem.durationSec,
-                        foto_evidencia: logItem.tempPausePhoto?.storagePath,
+                        foto_evidencia: logItem.tempPausePhoto?.storagePath || logItem.photoDisposal?.storagePath,
                         coords_lat: gps.lat,
                         coords_lng: gps.lng
                     };
-                    addToSyncQueue('DB_INSERT', { table: 'tb_pausas', data: pausaPayload });
+                    addToSyncQueue('DB_INSERT', { table: 'pausas', data: extraPayload });
+                    // Também envia para a tabela principal 'logs' para o BI unificado
+                    const unifiedLog = {
+                        shift_id: shift.id_banco,
+                        type: logItem.type,
+                        status: logItem.status || 'OK',
+                        start_time: extraPayload.inicio,
+                        end_time: extraPayload.fim,
+                        duration_sec: logItem.durationSec,
+                        coords_lat: gps.lat,
+                        coords_lng: gps.lng,
+                        temp_pause_reason: extraPayload.motivo,
+                        custom_pause_reason: extraPayload.descricao_detalhada,
+                        photos: {
+                        }
+                    };
+                    if (extraPayload.foto_evidencia) {
+                        const url = supabaseClient.storage.from('evidencias').getPublicUrl(extraPayload.foto_evidencia).data.publicUrl;
+                        unifiedLog.photos[logItem.type === 'disposal' ? 'DEST' : 'PAUSA'] = url;
+                    }
+                    addToSyncQueue('DB_INSERT', { table: 'logs', data: unifiedLog });
                     return;
                 }
 
@@ -834,7 +856,13 @@
                         </div>
                         <div className="space-y-4">
                             <button onClick={() => { setActiveAction({ pruningTypes: [], status: 'OK', totalPausedSeconds: 0, photosBefore: [], photosAfter: [], startTime: Date.now(), copelRequired: 'NÃO' }); setView('tree_form'); }} className="w-full bg-audit-600 text-white p-9 rounded-[2rem] shadow-xl flex flex-col items-center gap-2 btn-active"><i className="fas fa-plus-circle text-3xl"></i><span className="font-black text-xl uppercase tracking-tighter">Registrar Manejo</span></button>
-                            <button onClick={() => { setActiveAction({ type: 'pause', isPaused: false, photosBefore: [], photosAfter: [] }); setView('global_pause_form'); }} className="w-full bg-white border-2 border-slate-200 text-slate-600 p-6 rounded-3xl shadow-sm flex items-center justify-center gap-4 btn-active"><i className="fas fa-pause-circle text-2xl"></i><span className="font-black text-lg uppercase tracking-tighter">Registrar Parada</span></button>
+
+                            <div className="grid grid-cols-2 gap-3">
+                                <button onClick={() => { setActiveAction({ type: 'disposal', isPaused: false, startTime: Date.now() }); setView('disposal_form'); }} className="bg-blue-600 text-white p-6 rounded-3xl shadow-sm flex flex-col items-center justify-center gap-2 btn-active"><i className="fas fa-truck-loading text-2xl"></i><span className="font-black text-[11px] uppercase tracking-tighter text-center leading-tight">Destinação<br />de Galhos</span></button>
+                                <button onClick={() => { setActiveAction({ type: 'logistics', isPaused: false, startTime: Date.now() }); setView('logistics_form'); }} className="bg-amber-600 text-white p-6 rounded-3xl shadow-sm flex flex-col items-center justify-center gap-2 btn-active"><i className="fas fa-map-marked-alt text-2xl"></i><span className="font-black text-[11px] uppercase tracking-tighter text-center leading-tight">Logística<br />Deslocamento</span></button>
+                            </div>
+
+                            <button onClick={() => { setActiveAction({ type: 'pause', isPaused: false, photosBefore: [], photosAfter: [] }); setView('global_pause_form'); }} className="w-full bg-white border-2 border-slate-200 text-slate-600 p-6 rounded-3xl shadow-sm flex items-center justify-center gap-4 btn-active"><i className="fas fa-pause-circle text-2xl"></i><span className="font-black text-lg uppercase tracking-tighter text-center">Registrar Parada<br /><span className="text-[10px] opacity-60">(Almoço / Chuva / Quebra)</span></span></button>
                         </div>
                     </div>
                     <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/95 border-t z-40"><button onClick={() => setShowEndConfirm(true)} className="w-full bg-audit-900 text-white py-5 rounded-3xl font-black text-sm uppercase tracking-widest">Encerrar Turno</button></div>
@@ -973,16 +1001,6 @@
                                 )}
                             </div>
 
-                            {/* OPÇÃO DE DESTINAÇÃO (SEMPRE VISÍVEL MAS OPCIONAL) */}
-                            <label className="flex items-center gap-3 p-3 border-2 border-slate-200 rounded-xl bg-white mb-4">
-                                <input
-                                    type="checkbox"
-                                    className="w-5 h-5 accent-blue-600"
-                                    checked={activeAction.destinacaoGalhos || false}
-                                    onChange={e => setActiveAction({ ...activeAction, destinacaoGalhos: e.target.checked })}
-                                />
-                                <span className="text-[10px] font-black uppercase text-blue-800">REALIZAR DESTINAÇÃO FINAL DE GALHOS?</span>
-                            </label>
 
                             <Label required>Espécie</Label>
                             <input list="especies" className="w-full p-4 border-2 rounded-2xl bg-slate-50 font-black mb-4 uppercase text-sm" placeholder="Pesquisar..." value={activeAction.species || ''} onChange={e => setActiveAction({ ...activeAction, species: e.target.value.toUpperCase() })} /><datalist id="especies">{LISTA_ESPECIES.map(s => <option key={s} value={s} />)}</datalist>
@@ -1152,6 +1170,81 @@
                 </div>
             );
 
+            // TELA DE DESTINAÇÃO (CARGA/DESCARTE)
+            if (view === 'disposal_form') {
+                return (
+                    <div className="p-6 screen-fade no-scrollbar flex flex-col min-h-screen">
+                        <div className="flex items-center gap-4 mb-6"><button onClick={() => { setActiveAction(null); setView('dashboard'); }} className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center"><i className="fas fa-arrow-left"></i></button><h2 className="text-xl font-black text-slate-800 uppercase italic">Destinação</h2></div>
+                        <Card className="bg-blue-50 border-blue-200">
+                            <p className="text-[11px] font-black text-blue-800 uppercase mb-4">Inicie o cronômetro ao começar a carga ou deslocamento para descarte.</p>
+                            <div className="text-center py-8">
+                                <div className="text-5xl font-black text-blue-900 font-mono tracking-tighter">{formatDuration(elapsed)}</div>
+                            </div>
+                        </Card>
+                        <Card>
+                            <Label required>Foto da Evidência (Carga ou Local de Descarte)</Label>
+                            <PhotoUpload label="FOTO DESTINAÇÃO" preview={activeAction.photoDisposal} onCapture={async f => setActiveAction({ ...activeAction, photoDisposal: await processPhoto(f, 'DESTINACAO') })} />
+                        </Card>
+                        <div className="mt-auto pb-8">
+                            <button disabled={!activeAction.photoDisposal} onClick={async () => {
+                                const now = Date.now();
+                                const log = {
+                                    ...activeAction,
+                                    type: 'disposal',
+                                    endTime: now,
+                                    durationSec: Math.floor((now - activeAction.startTime) / 1000),
+                                    coords: `${gps.lat},${gps.lng}`,
+                                    status: 'OK',
+                                    timestamp: new Date().toISOString()
+                                };
+                                setLogs([log, ...logs]);
+                                await pushToSupabase(log);
+                                setActiveAction(null);
+                                setView('dashboard');
+                            }} className="w-full py-6 rounded-3xl bg-blue-600 text-white font-black text-xl uppercase shadow-xl disabled:opacity-50">Finalizar Destinação</button>
+                        </div>
+                    </div>
+                );
+            }
+
+            // TELA DE LOGÍSTICA
+            if (view === 'logistics_form') {
+                return (
+                    <div className="p-6 screen-fade no-scrollbar flex flex-col min-h-screen">
+                        <div className="flex items-center gap-4 mb-6"><button onClick={() => { setActiveAction(null); setView('dashboard'); }} className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center"><i className="fas fa-arrow-left"></i></button><h2 className="text-xl font-black text-slate-800 uppercase italic">Logística</h2></div>
+                        <Card className="bg-amber-50 border-amber-200">
+                            <Label required>Motivo do Deslocamento</Label>
+                            <select className="w-full p-4 border-2 rounded-2xl mb-4 font-black bg-white text-sm uppercase" value={activeAction.tempPauseReason || ''} onChange={e => setActiveAction({ ...activeAction, tempPauseReason: e.target.value })}><option value="">Selecione...</option>{LOGISTICA_REASONS.map(r => <option key={r} value={r}>{r}</option>)}</select>
+                            <div className="text-center py-4">
+                                <div className="text-5xl font-black text-amber-900 font-mono tracking-tighter">{formatDuration(elapsed)}</div>
+                            </div>
+                        </Card>
+                        <Card>
+                            <Label>Foto Opcional (Painel / Trajeto)</Label>
+                            <PhotoUpload label="FOTO LOGÍSTICA" preview={activeAction.tempPausePhoto} onCapture={async f => setActiveAction({ ...activeAction, tempPausePhoto: await processPhoto(f, 'LOGISTICA') })} />
+                        </Card>
+                        <div className="mt-auto pb-8">
+                            <button disabled={!activeAction.tempPauseReason} onClick={async () => {
+                                const now = Date.now();
+                                const log = {
+                                    ...activeAction,
+                                    type: 'logistics',
+                                    endTime: now,
+                                    durationSec: Math.floor((now - activeAction.startTime) / 1000),
+                                    coords: `${gps.lat},${gps.lng}`,
+                                    status: 'OK',
+                                    timestamp: new Date().toISOString()
+                                };
+                                setLogs([log, ...logs]);
+                                await pushToSupabase(log);
+                                setActiveAction(null);
+                                setView('dashboard');
+                            }} className="w-full py-6 rounded-3xl bg-amber-600 text-white font-black text-xl uppercase shadow-xl disabled:opacity-50">Finalizar Deslocamento</button>
+                        </div>
+                    </div>
+                );
+            }
+
             // ✅ END DAY COM CONFIRMAÇÃO DE DOWNLOAD
             if (view === 'end_day') return (
                 <div className="p-6 screen-fade text-center pb-12 no-scrollbar">
@@ -1253,6 +1346,13 @@
                                         log.photosAfter?.forEach((item, i) => {
                                             if (item?.storagePath) photosJson[`D${i + 1}`] = supabaseClient.storage.from('evidencias').getPublicUrl(item.storagePath).data.publicUrl;
                                         });
+                                        // Mapeia PAUSA OU DESTINAÇÃO
+                                        if (log.tempPausePhoto?.storagePath) {
+                                            photosJson['PAUSA'] = supabaseClient.storage.from('evidencias').getPublicUrl(log.tempPausePhoto.storagePath).data.publicUrl;
+                                        }
+                                        if (log.photoDisposal?.storagePath) {
+                                            photosJson['DEST'] = supabaseClient.storage.from('evidencias').getPublicUrl(log.photoDisposal.storagePath).data.publicUrl;
+                                        }
                                         // Mapeia IMPEDIMENTO
                                         if (log.photoProblem?.storagePath) {
                                             photosJson['IMP'] = supabaseClient.storage.from('evidencias').getPublicUrl(log.photoProblem.storagePath).data.publicUrl;
@@ -1274,9 +1374,9 @@
                                             timestamp: log.timestamp || new Date().toISOString(),
                                             duration_sec: log.durationSec || null,
                                             effective_duration_sec: log.effectiveDurationSec || null,
-                                            // FIX: INVERTENDO TEMPOS CONFORME SOLICITADO (DADOS <-> SERRA)
-                                            execution_duration_sec: log.formDurationSec || null, // Recebe o tempo longo (Dados)
-                                            form_duration_sec: log.executionDurationSec || null, // Recebe o tempo curto (Execução)
+                                            // 🚀 CORREÇÃO: TEMPOS SEPARADOS PARA BI (SEM INVERSÃO)
+                                            execution_duration_sec: log.type === 'tree' ? log.effectiveDurationSec : log.durationSec,
+                                            form_duration_sec: log.type === 'tree' ? log.formDurationSec : 0,
                                             total_paused_seconds: log.totalPausedSeconds || 0,
                                             coords: log.coords || null,
                                             lat: lat ? parseFloat(lat) : null,
