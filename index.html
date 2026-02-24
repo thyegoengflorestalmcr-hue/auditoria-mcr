@@ -6,17 +6,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>RAD PODA v21.0 OFICIAL | MCR Sistema Completo</title>
 
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- ============================================================ -->
+    <!-- DEPENDÊNCIAS — VERSÕES FIXADAS. NÃO ATUALIZAR SEM TESTES.  -->
+    <!-- Última validação: v21.0 / 2025                              -->
+    <!-- ============================================================ -->
+    <script crossorigin src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone@7.23.5/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com/3.4.1"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/idb-keyval@6/dist/umd.js"></script>
-    <script
-        src="https://cdn.jsdelivr.net/npm/browser-image-compression@2.0.2/dist/browser-image-compression.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/exif-js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/idb-keyval@6.2.1/dist/umd.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/browser-image-compression@2.0.2/dist/browser-image-compression.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/exif-js@2.3.0/exif.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.7/dist/umd/supabase.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
     <script>
@@ -106,8 +109,21 @@
         const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB0bmRuaXVuYWppd3FuZ3F0Z2VxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA5MjM2MDAsImV4cCI6MjA4NjQ5OTYwMH0.gIXVNThb3ICaU1cQUPsDs4HvOocM-rh2GFw5kExmkJo";
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+        // ============================================================
+        // 🔐 SEGURANÇA — SENHA DO SUPERVISOR (Hash SHA-256)
+        // ============================================================
+        const SUPERVISOR_HASH = CryptoJS.SHA256('MCR@Supervisor#2025').toString();
+        const checkSupervisor = (input) => CryptoJS.SHA256(input || '').toString() === SUPERVISOR_HASH;
+
+        const safeCoords = (lat, lng) => {
+            const la = parseFloat(lat);
+            const lg = parseFloat(lng);
+            if (isNaN(la) || isNaN(lg) || la === 0 && lg === 0) return null;
+            return `${la},${lg}`;
+        };
+        const safeFloat = (v) => { const f = parseFloat(v); return isNaN(f) ? null : f; };
+
         const TIPOS_PODA_DATA = [
-            // GRUPO PODA - EDITAL OFICIAL
             { id: "LEVANTAMENTO_DE_COPA", label: "Levantamento de Copa" },
             { id: "PODA_LIMPEZA", label: "Poda de Limpeza" },
             { id: "PODA_FORMACAO", label: "Poda de Formação" },
@@ -148,11 +164,11 @@
         ].sort();
 
         const PAUSE_REASONS = ["Almoço / Refeição", "Chuva / Tempo Ruim", "Quebra de Equipamento", "Interferência de Munícipe", "Abastecimento", "Suspensão Rede (COPEL)", "Outros"];
-        const LOGISTICA_REASONS = ["Deslocamento entre Pontos", "Viagem para Descarte", "Busca de Ferramentas", "Outro"];
 
-        // ✅ GERAR ID ÚNICO MD5
         const generateTreeId = (species, cap, lat, lng) => {
-            const normalized = `${species.trim().toUpperCase()}_${parseFloat(cap).toFixed(1)}_${parseFloat(lat).toFixed(4)}_${parseFloat(lng).toFixed(4)}`;
+            const safeLat = (!lat || isNaN(parseFloat(lat))) ? '0.0000' : parseFloat(lat).toFixed(4);
+            const safeLng = (!lng || isNaN(parseFloat(lng))) ? '0.0000' : parseFloat(lng).toFixed(4);
+            const normalized = `${species.trim().toUpperCase()}_${parseFloat(cap || 0).toFixed(1)}_${safeLat}_${safeLng}`;
             return CryptoJS.MD5(normalized).toString().substring(0, 12).toUpperCase();
         };
 
@@ -194,21 +210,26 @@
                 foto_unificada: null, journeyStartTime: null, journeyEndTime: null, journeyDate: null
             });
             const [activeAction, setActiveAction] = useState(null);
+            const [activeDisposal, setActiveDisposal] = useState(null);
             const [logs, setLogs] = useState([]);
             const [gps, setGps] = useState({ lat: null, lng: null });
             const [elapsed, setElapsed] = useState(0);
             const [pauseElapsed, setPauseElapsed] = useState(0);
+            const [disposalElapsed, setDisposalElapsed] = useState(0);
             const [journeyElapsed, setJourneyElapsed] = useState(0);
             const [showEndConfirm, setShowEndConfirm] = useState(false);
             const [isExporting, setIsExporting] = useState(false);
             const [downloadedBlob, setDownloadedBlob] = useState(null);
+            const [confirmModal, setConfirmModal] = useState(null);
+            
+            const showConfirm = (title, body, onConfirm, onCancel, confirmLabel = 'Confirmar', cancelLabel = 'Cancelar') => {
+                setConfirmModal({ title, body, onConfirm, onCancel, confirmLabel, cancelLabel });
+            };
 
-            // --- SYNC QUEUE SYSTEM (BLINDAGEM TOTAL) ---
             const [syncQueue, setSyncQueue] = useState([]);
             const [isSyncing, setIsSyncing] = useState(false);
             const [onlineStatus, setOnlineStatus] = useState(navigator.onLine);
 
-            // Carregar Fila ao Iniciar
             useEffect(() => {
                 const initSync = async () => {
                     const q = await idbKeyval.get('mcr_sync_queue_v21') || [];
@@ -226,63 +247,48 @@
                 };
             }, []);
 
-            // Salvar Fila sempre que mudar
             useEffect(() => {
                 if (syncQueue) idbKeyval.set('mcr_sync_queue_v21', syncQueue);
             }, [syncQueue]);
 
-            // Processador de Fila (Roda a cada 5s se tiver internet)
             useEffect(() => {
                 const processQueue = async () => {
-                    // Verificações iniciais
                     if (!onlineStatus) return;
                     if (syncQueue.length === 0) return;
-                    if (isSyncing) return; // Evita concorrência
+                    if (isSyncing) return; 
 
                     setIsSyncing(true);
-
-                    // Pega o item mais antigo (FIFO)
                     const item = syncQueue[0];
 
                     try {
                         console.log(`🔄 TENTANDO SINCRONIZAR: ${item.type}`, item.payload);
 
-                        // --- 1. UPLOAD DE IMGEM ---
                         if (item.type === 'IMAGE_UPLOAD') {
                             const { path, bucket, base64 } = item.payload;
-
-                            // Converte Base64 de volta para Blob
                             const res = await fetch(base64);
                             const blob = await res.blob();
 
                             const { error } = await supabaseClient.storage
-                                .from(bucket || 'evidencias') // Garante bucket certo
+                                .from(bucket || 'evidencias') 
                                 .upload(path, blob, { upsert: true });
 
                             if (error) throw new Error(`Erro Upload: ${error.message}`);
                         }
-
-                        // --- 2. INSERT OU UPDATE NO BANCO (COM AUTO-CORREÇÃO LEGADO) ---
                         else if (item.type === 'DB_INSERT' || item.type === 'DB_UPDATE') {
                             let { table, data, id } = item.payload;
 
-                            // AUTO-CORREÇÃO: Mapeamento para novas tabelas do Gestor
-                            if (table === 'tb_turnos') table = 'shifts'; // Mapeia antigo para novo
-                            if (table === 'tb_manejos') table = 'logs';  // Mapeia antigo para novo
-                            if (table === 'tb_pausas') table = 'logs';   // Pausas agora são logs com status 'PAUSA' (ou tabela separada se preferir, mas logs é o padrão do Gestor)
+                            if (table === 'tb_turnos') table = 'shifts'; 
+                            if (table === 'tb_manejos') table = 'logs';  
+                            if (table === 'tb_pausas') table = 'logs';   
 
                             let error;
 
-                            // Tratamento Específico para tabela 'shifts' (Jornadas)
                             if (table === 'shifts') {
-                                // Mapeia campos do payload antigo (tb_turnos) para o novo (shifts)
                                 const mappedData = {
-                                    id: data.id, // Se tiver ID fixo
-                                    id: data.id, // Se tiver ID fixo
+                                    id: data.id, 
                                     journey_date: (() => {
                                         if (!data.inicio_jornada) return new Date().toISOString().split('T')[0];
                                         if (data.inicio_jornada.includes('T')) return data.inicio_jornada.split('T')[0];
-                                        // Fallback para DD/MM/YYYY
                                         const parts = data.inicio_jornada.split('/');
                                         if (parts.length === 3) return `${parts[2]}-${parts[1]}-${parts[0]}`;
                                         return new Date().toISOString().split('T')[0];
@@ -292,56 +298,37 @@
                                     journey_start_time: data.inicio_jornada ? data.inicio_jornada.split('T')[1] : null,
                                     dds_image_path: data.img_dds_url
                                 };
-                                // Filtra undefined
                                 Object.keys(mappedData).forEach(key => mappedData[key] === undefined && delete mappedData[key]);
 
                                 if (item.type === 'DB_INSERT') {
                                     const res = await supabaseClient.from(table).insert(mappedData);
                                     error = res.error;
                                 } else {
-                                    // Update normal
                                     const res = await supabaseClient.from(table).update(mappedData).eq('id', id);
                                     error = res.error;
                                 }
                             }
-
-                            // Tratamento Específico para tabela 'logs' (Manejos)
                             else if (table === 'logs') {
-                                // Se for PAUSA, ignora neste momento ou salva em tabela de pausa se existisse.
-                                // O Gestor lê 'logs' para árvores.
-                                if (data.status === 'PAUSA') {
-                                    // Opcional: Implementar tabela de pausas no Supabase se precisar visualizar.
-                                    // Por enquanto, foca nas árvores.
-                                    console.log("Skipping PAUSA sync for now (focus on trees)");
-                                    setIsSyncing(false);
-                                    setSyncQueue(syncQueue.slice(1)); // Remove da fila para não travar
-                                    await idbKeyval.set('mcr_sync_queue_v21', syncQueue.slice(1));
-                                    return;
-                                }
-
                                 const mappedData = {
-                                    shift_id: data.id_turno,
+                                    shift_id: data.id_turno || data.shift_id,
                                     tree_desc: data.especie || 'NÃO IDENTIFICADA',
                                     os_id: data.protocolo_os,
                                     coords: `${data.coords_lat}, ${data.coords_lng}`,
                                     start_time: data.inicio_form,
                                     end_time: data.fim_execucao,
-                                    execution_duration_sec: data.duracao_efetiva_seg,
-                                    form_duration_sec: (data.duracao_total_seg - data.duracao_efetiva_seg),
-                                    total_paused_seconds: 0, // Simplificação
+                                    execution_duration_sec: data.duracao_efetiva_seg || data.duracao_total_seg,
+                                    form_duration_sec: (data.duracao_total_seg - (data.duracao_efetiva_seg || 0)),
+                                    total_paused_seconds: data.total_paused_seconds || 0,
                                     pruning_types: data.tipos_poda,
                                     demand_source: data.origem_demanda,
                                     status: data.status,
                                     cap: data.cap,
                                     height: data.altura,
-                                    photos: {} // Será preenchido abaixo
+                                    photos: {} 
                                 };
 
-                                // Reconstrói objeto de fotos para o padrão do Gestor: { "A1": url, "D1": url ... }
-                                // O payload original tem arrays fotos_antes e fotos_depois
                                 if (data.fotos_antes && Array.isArray(data.fotos_antes)) {
                                     data.fotos_antes.forEach((url, i) => {
-                                        // Recupera URL pública se for caminho relativo
                                         const fullUrl = url.startsWith('http') ? url : supabaseClient.storage.from('evidencias').getPublicUrl(url).data.publicUrl;
                                         mappedData.photos[`A${i + 1}`] = fullUrl;
                                     });
@@ -362,13 +349,11 @@
                                     const res = await supabaseClient.from(table).insert(mappedData);
                                     error = res.error;
                                 } else {
-                                    // DB_UPDATE
                                     const res = await supabaseClient.from(table).update(mappedData).eq('id', id);
                                     error = res.error;
                                 }
                             }
                             else {
-                                // Fallback genérico para outras tabelas
                                 if (item.type === 'DB_INSERT') {
                                     const res = await supabaseClient.from(table).insert(data);
                                     error = res.error;
@@ -381,7 +366,6 @@
                             if (error) throw new Error(`Erro Banco ${item.type}: ${error.message} (Tabela: ${table})`);
                         }
 
-                        // --- 3. SUCESSO! REMOVE DA FILA ---
                         console.log("✅ SUCESSO! Item enviado.");
                         const newQueue = syncQueue.slice(1);
                         setSyncQueue(newQueue);
@@ -389,28 +373,40 @@
 
                     } catch (err) {
                         console.error("❌ FALHA NO SYNC:", err);
-                        // Se for erro de permissão (RLS), avisa o usuário
                         if (err.message.includes("row-level security") || err.message.includes("permission denied")) {
                             alert("ERRO DE PERMISSÃO: O sistema de nuvem bloqueou o envio. Avise o suporte imediatamente com o código: 'RLS_BLOCK'");
                         }
-                        // Não remove da fila para tentar de novo
+                        
+                        // ✅ CORREÇÃO: DESENTUPIR A FILA (IMPEDE TRAVAMENTO)
+                        const failedItem = syncQueue[0];
+                        failedItem.attempts = (failedItem.attempts || 0) + 1;
+
+                        if (failedItem.attempts >= 5) {
+                            console.error("Item falhou 5 vezes, descartando para destravar a fila:", failedItem);
+                            const newQueue = syncQueue.slice(1);
+                            setSyncQueue(newQueue);
+                            await idbKeyval.set('mcr_sync_queue_v21', newQueue);
+                        } else {
+                            // Move o item com erro para o final da fila para dar chance aos outros passarem
+                            const newQueue = [...syncQueue.slice(1), failedItem];
+                            setSyncQueue(newQueue);
+                            await idbKeyval.set('mcr_sync_queue_v21', newQueue);
+                        }
                     } finally {
                         setIsSyncing(false);
                     }
                 };
 
-                const timer = setInterval(processQueue, 3000); // Tenta a cada 3 segundos
+                const timer = setInterval(processQueue, 3000); 
                 return () => clearInterval(timer);
             }, [syncQueue, isSyncing, onlineStatus]);
 
-            // Helper para Adicionar à Fila
             const addToSyncQueue = async (type, payload) => {
                 const newItem = { id: Date.now() + Math.random(), type, payload, timestamp: new Date().toISOString() };
                 const newQueue = [...syncQueue, newItem];
                 setSyncQueue(newQueue);
                 await idbKeyval.set('mcr_sync_queue_v21', newQueue);
             };
-
 
             useEffect(() => {
                 const handleBeforeUnload = (e) => {
@@ -430,30 +426,38 @@
                     try {
                         const s = await idbKeyval.get('mcr_shift_v21_oficial');
                         const a = await idbKeyval.get('mcr_active_v21_oficial');
+                        const d = await idbKeyval.get('mcr_disposal_v21_oficial');
                         const l = await idbKeyval.get('mcr_logs_v21_oficial') || [];
                         if (s) setShift(s);
 
-                        // RECUPERAÇÃO DE ESTADO (CRASH/RELOAD)
                         if (a) {
                             setActiveAction(a);
-                            // Recalcula tempo decorrido desde o crash
                             const now = Date.now();
-                            if (a.executionStartTime) {
-                                // Se estava em execução, o tempo continua contando
-                                setElapsed(Math.floor((now - a.executionStartTime) / 1000));
-                            } else if (a.startTime) {
-                                setElapsed(Math.floor((now - a.startTime) / 1000));
-                            }
+                            if (a.executionStartTime) setElapsed(Math.floor((now - a.executionStartTime) / 1000));
+                            else if (a.startTime) setElapsed(Math.floor((now - a.startTime) / 1000));
+                        }
+
+                        if (d) {
+                            setActiveDisposal(d);
+                            if (d.startTime) setDisposalElapsed(Math.floor((Date.now() - d.startTime) / 1000));
                         }
 
                         setLogs(l);
 
-                        // CHECK DE INTEGRIDADE (ANTI-SABOTAGEM)
-                        const lastExitSafety = localStorage.getItem('mcr_safety_exit');
-                        if (lastExitSafety === 'unsafe' && s?.active) {
+                        const storedSafety = localStorage.getItem('mcr_safety_exit') || '';
+                        const storedHmac = localStorage.getItem('mcr_safety_exit_hmac') || '';
+                        const hmacSecret = s?.id_banco || 'MCR_RAD_V21_FALLBACK';
+                        const expectedHmac = CryptoJS.HmacSHA256('safe', hmacSecret).toString().slice(0, 20);
+
+                        if (storedSafety === 'unsafe' && s?.active) {
                             alert("⚠️ ALERTA DE SEGURANÇA \n\nA última sessão foi encerrada incorretamente ou os dados foram limpos sem envio.\nIsso foi registrado no log de auditoria do sistema.");
                         }
-                        localStorage.setItem('mcr_safety_exit', 'unsafe'); // Marca como insegura até que faça logout correto
+                        if (storedSafety === 'safe' && storedHmac !== expectedHmac) {
+                            console.warn('🚨 TAMPER ALERT: mcr_safety_exit adulterado manualmente!');
+                            alert("⚠️ ALERTA CRÍTICO DE SEGURANÇA\n\nDado de controle de sessão adulterado. Esta ocorrência foi registrada.");
+                        }
+                        localStorage.setItem('mcr_safety_exit', 'unsafe');
+                        localStorage.removeItem('mcr_safety_exit_hmac');
 
                         setView(s?.active ? (a ? (a.type === 'tree' && a.executionStartTime ? 'active_service' : 'tree_form') : 'dashboard') : 'setup');
                     } catch (err) { setView('setup'); }
@@ -469,26 +473,29 @@
                     }
                     if (activeAction) {
                         const baseTime = activeAction.executionStartTime || activeAction.startTime;
-                        if (baseTime) {
-                            setElapsed(Math.floor((Date.now() - baseTime) / 1000));
-                        }
+                        if (baseTime) setElapsed(Math.floor((Date.now() - baseTime) / 1000));
 
                         if (activeAction.isPaused && activeAction.pauseStartTime) {
                             setPauseElapsed(Math.floor((Date.now() - activeAction.pauseStartTime) / 1000));
                         }
                     }
+
+                    if (activeDisposal && activeDisposal.startTime) {
+                        setDisposalElapsed(Math.floor((Date.now() - activeDisposal.startTime) / 1000));
+                    }
                 }, 1000);
                 return () => clearInterval(timer);
-            }, [activeAction, shift.active, shift.journeyStartTime, shift.journeyEndTime]);
+            }, [activeAction, activeDisposal, shift.active, shift.journeyStartTime, shift.journeyEndTime]);
 
             useEffect(() => {
                 if (shift?.active) idbKeyval.set('mcr_shift_v21_oficial', shift);
                 if (activeAction) idbKeyval.set('mcr_active_v21_oficial', activeAction);
                 else idbKeyval.del('mcr_active_v21_oficial');
+                if (activeDisposal) idbKeyval.set('mcr_disposal_v21_oficial', activeDisposal);
+                else idbKeyval.del('mcr_disposal_v21_oficial');
                 idbKeyval.set('mcr_logs_v21_oficial', logs);
-            }, [shift, activeAction, logs]);
+            }, [shift, activeAction, activeDisposal, logs]);
 
-            // ✅ BLINDAGEM TOTAL: BACKUP DE ESTADO A CADA 1 MINUTO
             useEffect(() => {
                 const interval = setInterval(() => {
                     if (shift?.active) {
@@ -497,6 +504,7 @@
                             shift: shift,
                             logs: logs,
                             activeAction: activeAction,
+                            activeDisposal: activeDisposal,
                             lastUpdate: new Date().toISOString()
                         };
                         const blob = new Blob([JSON.stringify(backupState, null, 2)], { type: 'application/json' });
@@ -506,9 +514,9 @@
                             .then(() => console.log("Backup de Estado OK"))
                             .catch(err => console.warn("Erro Backup Estado:", err));
                     }
-                }, 60000); // 60 segundos
+                }, 60000); 
                 return () => clearInterval(interval);
-            }, [shift, logs, activeAction]);
+            }, [shift, logs, activeAction, activeDisposal]);
 
             useEffect(() => {
                 const watchId = navigator.geolocation.watchPosition(
@@ -519,16 +527,34 @@
                 return () => navigator.geolocation.clearWatch(watchId);
             }, []);
 
-            // --- FUNÇÕES DE SUPORTE (EXTRACÃO DE METADADOS E PROCESSAMENTO) ---
             const getExifData = (file) => {
                 return new Promise((resolve) => {
                     EXIF.getData(file, function () {
                         const allTags = EXIF.getAllTags(this);
                         const convertDMSToDD = (dms, ref) => {
-                            if (!dms) return null;
-                            let dd = dms[0] + dms[1] / 60 + dms[2] / 3600;
-                            if (ref === "S" || ref === "W") dd = dd * -1;
-                            return dd;
+                            try {
+                                if (!dms || !Array.isArray(dms) || dms.length < 3) return null;
+                                
+                                const getValue = (val) => {
+                                    if (val && typeof val.numerator !== 'undefined' && typeof val.denominator !== 'undefined') {
+                                        return val.denominator === 0 ? 0 : val.numerator / val.denominator;
+                                    }
+                                    return parseFloat(val);
+                                };
+
+                                let d = getValue(dms[0]);
+                                let m = getValue(dms[1]);
+                                let s = getValue(dms[2]);
+                                
+                                if (isNaN(d) || isNaN(m) || isNaN(s)) return null;
+
+                                let dd = d + m / 60 + s / 3600;
+                                if (ref === "S" || ref === "W") dd = dd * -1;
+                                return dd;
+                            } catch (err) {
+                                console.warn("Falha ao converter GPS EXIF:", err);
+                                return null;
+                            }
                         };
                         resolve({
                             dateTime: allTags.DateTimeOriginal || allTags.DateTime,
@@ -543,32 +569,25 @@
 
             const processPhoto = async (file, photoType = 'GENERICO') => {
                 if (!file) return null;
-                const options = { maxSizeMB: 0.2, maxWidthOrHeight: 1280, useWebWorker: true }; // Otimizado para 3G/4G
+                const options = { maxSizeMB: 0.2, maxWidthOrHeight: 1280, useWebWorker: true }; 
 
                 try {
-                    // 1. Compressão Inteligente
                     const compressedFile = await imageCompression(file, options);
-                    const metadata = await getExifData(file); // Extrai EXIF do ORIGINAL
-
-                    // 2. Preparação para Upload Seguro (SaaS Storage)
+                    const metadata = await getExifData(file); 
                     const fileExt = file.name.split('.').pop();
                     const fileName = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
                     const storagePath = `${shift.journeyDate || 'SEM_DATA'}/${shift.placa || 'SEM_PLACA'}/${photoType}/${fileName}`;
 
-                    // 3. Converter para Base64 (apenas para preview local imediato)
                     const base64 = await imageCompression.getDataUrlFromFile(compressedFile);
 
-                    // 4. Adicionar à Fila de Upload (Background Sync)
-                    // Importante: A fila agora salva o BLOB/File direto se possível, ou base64 para reconstruir
                     addToSyncQueue('IMAGE_UPLOAD', {
                         path: storagePath,
-                        base64: base64, // Usando base64 para persistência no IndexedDB
+                        base64: base64, 
                         bucket: 'evidencias'
                     });
 
-                    // Retorna objeto padronizado para o estado local
                     return {
-                        base64: base64, // FIX: Padronizando nome da propriedade para o Componente PhotoUpload
+                        base64: base64, 
                         localPreview: base64,
                         storagePath: storagePath,
                         publicUrl: supabaseClient.storage.from('evidencias').getPublicUrl(storagePath).data.publicUrl,
@@ -587,10 +606,8 @@
                 }
             };
 
-            // --- SISTEMA DE ENVIO SaaS (TABELAS RELACIONAIS) ---
             const pushToSupabase = async (logItem) => {
-                // Se for PAUSA
-                if (logItem.status === 'PAUSA' || logItem.type === 'logistics' || logItem.type === 'disposal') {
+                if (logItem.status === 'PAUSA' || logItem.type === 'disposal') {
                     const extraPayload = {
                         id_turno: shift.id_banco,
                         type: logItem.type,
@@ -599,12 +616,15 @@
                         inicio: new Date(logItem.startTime || logItem.pauseStartTime).toISOString(),
                         fim: new Date(logItem.endTime).toISOString(),
                         duracao_seg: logItem.durationSec,
-                        foto_evidencia: logItem.tempPausePhoto?.storagePath || logItem.photoDisposal?.storagePath,
+                        foto_evidencia: logItem.tempPausePhoto?.storagePath,
                         coords_lat: gps.lat,
                         coords_lng: gps.lng
                     };
-                    addToSyncQueue('DB_INSERT', { table: 'pausas', data: extraPayload });
-                    // Também envia para a tabela principal 'logs' para o BI unificado
+
+                    if (logItem.status === 'PAUSA') {
+                        addToSyncQueue('DB_INSERT', { table: 'pausas', data: extraPayload });
+                    }
+
                     const unifiedLog = {
                         shift_id: shift.id_banco,
                         type: logItem.type,
@@ -615,25 +635,24 @@
                         coords_lat: gps.lat,
                         coords_lng: gps.lng,
                         temp_pause_reason: extraPayload.motivo,
-                        custom_pause_reason: extraPayload.descricao_detalhada,
-                        photos: {
-                        }
+                        photos: {}
                     };
-                    if (extraPayload.foto_evidencia) {
-                        const url = supabaseClient.storage.from('evidencias').getPublicUrl(extraPayload.foto_evidencia).data.publicUrl;
-                        unifiedLog.photos[logItem.type === 'disposal' ? 'DEST' : 'PAUSA'] = url;
+
+                    if (logItem.type === 'disposal') {
+                        if (logItem.photoBefore?.storagePath) unifiedLog.photos['DEST_A'] = supabaseClient.storage.from('evidencias').getPublicUrl(logItem.photoBefore.storagePath).data.publicUrl;
+                        if (logItem.photoAfter?.storagePath) unifiedLog.photos['DEST_D'] = supabaseClient.storage.from('evidencias').getPublicUrl(logItem.photoAfter.storagePath).data.publicUrl;
+                    } else if (extraPayload.foto_evidencia) {
+                        unifiedLog.photos['PAUSA'] = supabaseClient.storage.from('evidencias').getPublicUrl(extraPayload.foto_evidencia).data.publicUrl;
                     }
+
                     addToSyncQueue('DB_INSERT', { table: 'logs', data: unifiedLog });
                     return;
                 }
 
-                // Se for MANEJO (Árvore)
-                // 1. TENTA RECUPERAR GPS DA FOTO (PRIORIDADE TOTAL)
                 let finalLat = gps.lat;
                 let finalLng = gps.lng;
                 let finalTime = new Date(logItem.startTime || Date.now()).toISOString();
 
-                // Procura GPS nas fotos (ordem de prioridade: Antes > Depois > Impedimento)
                 const allPhotos = [
                     ...(logItem.photosBefore || []),
                     ...(logItem.photosAfter || []),
@@ -645,14 +664,9 @@
                 if (photoWithGps) {
                     finalLat = photoWithGps.metadata.gps_lat;
                     finalLng = photoWithGps.metadata.gps_lng;
-                    console.log(`📍 USANDO GPS DA FOTO: ${finalLat}, ${finalLng}`);
-                } else {
-                    console.log(`📍 USANDO GPS DO DISPOSITIVO (FOTO SEM EXIF): ${finalLat}, ${finalLng}`);
-                }
+                } 
 
-                // Tenta recuperar Data da Foto Original
                 if (photoWithGps && photoWithGps.metadata.originalDate) {
-                    // Tenta converter formato EXIF "YYYY:MM:DD HH:MM:SS" ou ISO
                     const d = new Date(photoWithGps.metadata.originalDate);
                     if (!isNaN(d.getTime())) finalTime = d.toISOString();
                 }
@@ -660,55 +674,91 @@
                 const manejoPayload = {
                     id_turno: shift.id_banco,
                     tree_id_md5: logItem.treeId,
-
-                    // Dendrometria
                     especie: logItem.species,
                     cap: parseFloat(logItem.cap),
                     altura: parseFloat(logItem.height),
-
-                    // Classificação
                     origem_demanda: activeAction?.demandSource || 'ROTINA',
                     protocolo_os: activeAction?.osId,
                     tipos_poda: logItem.pruningTypes,
                     destinacao_galhos: logItem.destinacaoGalhos,
-
-                    // Tempos e Auditoria
-                    inicio_form: finalTime, // USA HORA DA FOTO SE TIVER
+                    inicio_form: finalTime, 
                     inicio_execucao: new Date(logItem.executionStartTime).toISOString(),
                     fim_execucao: new Date(logItem.endTime).toISOString(),
                     duracao_total_seg: logItem.durationSec,
                     duracao_efetiva_seg: logItem.effectiveDurationSec,
-
-                    // Fotos (Armazena apenas os caminhos do Storage, fotos sobem separado)
+                    total_paused_seconds: logItem.totalPausedSeconds || 0,
                     fotos_antes: logItem.photosBefore?.map(p => p?.storagePath).filter(Boolean),
                     fotos_depois: logItem.photosAfter?.map(p => p?.storagePath).filter(Boolean),
                     foto_impedimento: logItem.photoProblem?.storagePath,
-
-                    // Status e Impedimentos
                     status: logItem.status,
                     motivo_impedimento: logItem.problemReport,
-
-                    // GEO POSTGIS (PRIORIDADE FOTO)
                     coords_lat: finalLat,
                     coords_lng: finalLng,
                     endereco_aproximado: photoWithGps ? '📍 GPS DA FOTO (EXIF)' : '📱 GPS DO DISPOSITIVO'
                 };
 
                 addToSyncQueue('DB_INSERT', { table: 'tb_manejos', data: manejoPayload });
+
+                const mainPruningType = (logItem.pruningTypes || [])[0] || '';
+                const unifiedLog = {
+                    shift_id: shift.id_banco,
+                    type: 'tree',
+                    status: logItem.status || 'OK',
+                    start_time: manejoPayload.inicio_form,
+                    end_time: manejoPayload.fim_execucao,
+                    duration_sec: logItem.durationSec,
+                    execution_duration_sec: logItem.executionDurationSec || logItem.durationSec,
+                    effective_duration_sec: logItem.effectiveDurationSec,
+                    form_duration_sec: logItem.formDurationSec || 0,
+                    total_paused_seconds: logItem.totalPausedSeconds || 0,
+                    species: logItem.species,
+                    tree_desc: mainPruningType ? `${logItem.species} [${mainPruningType}]` : logItem.species,
+                    os_id: logItem.osId,
+                    demand_source: activeAction?.demandSource || 'manutencao',
+                    pruning_types: logItem.pruningTypes || [],
+                    cap: parseFloat(logItem.cap) || null,
+                    height: parseFloat(logItem.height) || null,
+                    copel_required: activeAction?.copelRequired || 'NÃO',
+                    problem_report: logItem.problemReport || null,
+                    coords: logItem.coords,
+                    lat: finalLat,
+                    lng: finalLng,
+                    temp_pause_reason: logItem.tempPauseReason,
+                    photos: {}
+                };
+
+                logItem.photosBefore?.forEach((p, i) => { if (p?.storagePath) unifiedLog.photos[`A${i + 1}`] = p.publicUrl; });
+                logItem.photosAfter?.forEach((p, i) => { if (p?.storagePath) unifiedLog.photos[`D${i + 1}`] = p.publicUrl; });
+                if (logItem.photoProblem?.storagePath) unifiedLog.photos['IMP'] = logItem.photoProblem.publicUrl;
+                if (logItem.tempPausePhoto?.storagePath) unifiedLog.photos['PAUSA'] = logItem.tempPausePhoto.publicUrl;
+
+                addToSyncQueue('DB_INSERT', { table: 'logs', data: unifiedLog });
             };
 
             const stats = useMemo(() => {
                 const treeLogs = logs.filter(l => l.type === 'tree' && l.status !== 'IMPEDIDO');
+                const disposalLogs = logs.filter(l => l.type === 'disposal');
+
                 const totalFormSec = treeLogs.reduce((acc, log) => acc + (log.formDurationSec || 0), 0);
                 const totalManejoPuroSec = treeLogs.reduce((acc, log) => acc + (log.effectiveDurationSec || 0), 0);
-                const hmTotalEfetivo = totalFormSec + totalManejoPuroSec;
+                const totalDisposalSec = disposalLogs.reduce((acc, log) => acc + (log.durationSec || 0), 0);
+
+                const runningManejo = (activeAction?.type === 'tree') ? elapsed : 0;
+                const runningDisposal = (activeDisposal) ? disposalElapsed : 0;
+                const runningPause = (activeAction?.isPaused || activeAction?.type === 'pause') ? pauseElapsed : 0;
+
+                const hmTotalEfetivo = totalFormSec + totalManejoPuroSec + totalDisposalSec + runningManejo + runningDisposal;
+
                 const journeySec = journeyElapsed;
-                const logisticSec = Math.max(0, journeySec - hmTotalEfetivo);
+                const pausesSec = logs.filter(l => l.status === 'PAUSA').reduce((acc, log) => acc + (log.durationSec || 0), 0) + runningPause;
+
+                const logisticSec = Math.max(0, journeySec - hmTotalEfetivo - pausesSec);
 
                 return {
                     work: hmTotalEfetivo,
                     preparo: totalFormSec,
                     manejo: totalManejoPuroSec,
+                    disposal: totalDisposalSec,
                     logistics: logisticSec,
                     journey: journeySec,
                     totalTrees: logs.filter(l => l.type === 'tree').length,
@@ -717,13 +767,16 @@
                 };
             }, [logs, journeyElapsed]);
 
-            const finalizeAndClearAll = async () => {
+            const finalizeAndClearAll = async (forceBypass = false) => {
+                if (syncQueue.length > 0 && !forceBypass) {
+                    alert(`⚠️ OPERAÇÃO BLOQUEADA\n\nExistem ${syncQueue.length} registro(s) ainda não enviados ao servidor.\n\nAguarde o indicador "NUVEM OK" antes de reiniciar.`);
+                    return;
+                }
                 await idbKeyval.clear();
-                localStorage.clear();
+                localStorage.removeItem('mcr_safety_exit');
+                localStorage.removeItem('mcr_safety_exit_hmac');
                 window.location.reload();
             };
-
-            // TELAS (MANTENDO TODA LÓGICA ORIGINAL)
 
             if (view === 'setup' || view === 'edit_team') {
                 return (
@@ -758,7 +811,6 @@
                             const now = new Date();
                             const journeyDate = now.toLocaleDateString();
 
-                            // 1. Prepara Estado Local
                             const newShiftState = {
                                 ...shift,
                                 active: true,
@@ -767,7 +819,6 @@
                                 journeyDate: journeyDate
                             };
 
-                            // 2. Prepara Payload do Banco
                             const turnoPayload = {
                                 equipe_operador: shift.operador,
                                 placa_veiculo: shift.placa,
@@ -779,7 +830,6 @@
                                 audit_device_info: { userAgent: navigator.userAgent }
                             };
 
-                            // 3. Insere no Banco (Síncrono para garantir ID)
                             try {
                                 const journeyDateISO = now.toISOString().split('T')[0];
                                 const { data, error } = await supabaseClient.from('shifts').insert({
@@ -787,17 +837,15 @@
                                     rt: shift.rt,
                                     operador: shift.operador,
                                     journey_start_time: now.toLocaleTimeString(),
-                                    dds_image_path: shift.foto_unificada?.storagePath // Caminho relativo, o Gestor resolve ou o Sync converte
+                                    dds_image_path: shift.foto_unificada?.storagePath 
                                 }).select().single();
 
                                 if (error) throw error;
-                                if (data) newShiftState.id_banco = data.id; // Guarda ID do banco para relacionar manejos
+                                if (data) newShiftState.id_banco = data.id; 
                             } catch (e) {
                                 console.error("Erro ao iniciar turno no banco (offline?):", e);
-                                // Se falhar (offline), gera um ID temporário e adiciona à fila de sync para DEPOIS
                                 const tempId = crypto.randomUUID();
                                 newShiftState.id_banco = tempId;
-                                // Adiciona à fila usando formato antigo, o processador de fila vai converter para 'shifts'
                                 addToSyncQueue('DB_INSERT', { table: 'tb_turnos', data: { ...turnoPayload, id: tempId } });
                             }
 
@@ -807,8 +855,9 @@
 
                         <div className="mt-8 text-center">
                             <button onClick={() => {
-                                const p = prompt("🔐 ACESSO RESTRITO\nDigite a Senha de Supervisor:");
-                                if (p === 'admin') finalizeAndClearAll();
+                                const p = prompt("🔐 ACESSO RESTRITO\nDigite a Senha de Supervisor para forçar o reset (ignora fila pendente):");
+                                if (checkSupervisor(p)) finalizeAndClearAll(true);
+                                else if (p !== null) alert("Senha incorreta.");
                             }} className="text-[9px] text-slate-200 font-bold uppercase tracking-widest hover:text-red-400 transition-colors opacity-60 hover:opacity-100">
                                 <i className="fas fa-lock mr-1"></i> Opções de Suporte (Reset)
                             </button>
@@ -822,7 +871,6 @@
                     <div className="p-4 border-b flex justify-between items-center bg-white sticky top-0 z-40 shadow-sm">
                         <div className="flex items-center gap-3"><div className="w-10 h-10 bg-audit-600 rounded-full flex items-center justify-center text-white shadow-lg"><i className="fas fa-tree"></i></div><div><p className="text-[10px] font-black text-audit-600 uppercase leading-none">RAD PODA v21</p><p className="font-black text-slate-800 text-sm truncate max-w-[140px] uppercase leading-none mt-1.5">{shift.operador}</p></div></div>
                         <div className="text-right">
-                            {/* INDICADOR DE SYNC */}
                             <div className={`inline-flex items-center gap-2 px-2 py-1 rounded-lg mb-1 ${syncQueue.length === 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
                                 <div className={`w-2 h-2 rounded-full ${syncQueue.length === 0 ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`}></div>
                                 <span className="text-[8px] font-black uppercase">{syncQueue.length === 0 ? 'NUVEM OK' : `ENVIANDO (${syncQueue.length})`}</span>
@@ -830,10 +878,12 @@
                                     <button onClick={async (e) => {
                                         e.stopPropagation();
                                         const p = prompt("🔐 ACESSO RESTRITO\nDigite a Senha de Supervisor:");
-                                        if (p === 'admin') {
+                                        if (checkSupervisor(p)) {
                                             setSyncQueue([]);
                                             await idbKeyval.del('mcr_sync_queue_v21');
                                             alert("Fila limpa com sucesso.");
+                                        } else if (p !== null) {
+                                            alert("Senha incorreta.");
                                         }
                                     }} className="ml-2 text-slate-300 hover:text-red-500 transition-colors" title="Limpeza Técnica (Senha Requerida)">
                                         <i className="fas fa-trash-alt text-[10px]"></i>
@@ -841,6 +891,10 @@
                                 )}
                             </div>
                             <p className="text-[7px] font-black text-slate-400 uppercase leading-none">{shift.journeyDate}</p>
+                            <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[7px] font-black uppercase mt-0.5 ${gps.lat ? 'text-emerald-600' : 'text-amber-600 animate-pulse'}`}>
+                                <i className={`fas fa-location-dot text-[8px]`}></i>
+                                <span>{gps.lat ? `${parseFloat(gps.lat).toFixed(3)},${parseFloat(gps.lng).toFixed(3)}` : 'SEM GPS'}</span>
+                            </div>
                         </div>
                     </div>
                     <div className="p-5">
@@ -855,12 +909,24 @@
                             <div><p className="text-[8px] font-black text-slate-400 uppercase mb-1">Cortes</p><p className="text-xl font-black text-red-600">{stats.treesSuppressed}</p></div>
                         </div>
                         <div className="space-y-4">
+                            {activeDisposal && activeDisposal.step === 'running' && (
+                                <div className="bg-blue-600 p-4 rounded-3xl text-white shadow-lg animate-pulse mb-2 flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <i className="fas fa-truck-loading text-xl"></i>
+                                        <div className="flex flex-col">
+                                            <span className="font-black text-xs uppercase leading-none">Destinação Ativa</span>
+                                            <span className="text-[10px] font-mono leading-none mt-1">{formatDuration(disposalElapsed)}</span>
+                                        </div>
+                                    </div>
+                                    <button onClick={() => setView('disposal_form')} className="bg-white text-blue-600 px-4 py-2 rounded-xl text-[10px] font-black uppercase">Finalizar</button>
+                                </div>
+                            )}
+
                             <button onClick={() => { setActiveAction({ pruningTypes: [], status: 'OK', totalPausedSeconds: 0, photosBefore: [], photosAfter: [], startTime: Date.now(), copelRequired: 'NÃO' }); setView('tree_form'); }} className="w-full bg-audit-600 text-white p-9 rounded-[2rem] shadow-xl flex flex-col items-center gap-2 btn-active"><i className="fas fa-plus-circle text-3xl"></i><span className="font-black text-xl uppercase tracking-tighter">Registrar Manejo</span></button>
 
-                            <div className="grid grid-cols-2 gap-3">
-                                <button onClick={() => { setActiveAction({ type: 'disposal', isPaused: false, startTime: Date.now() }); setView('disposal_form'); }} className="bg-blue-600 text-white p-6 rounded-3xl shadow-sm flex flex-col items-center justify-center gap-2 btn-active"><i className="fas fa-truck-loading text-2xl"></i><span className="font-black text-[11px] uppercase tracking-tighter text-center leading-tight">Destinação<br />de Galhos</span></button>
-                                <button onClick={() => { setActiveAction({ type: 'logistics', isPaused: false, startTime: Date.now() }); setView('logistics_form'); }} className="bg-amber-600 text-white p-6 rounded-3xl shadow-sm flex flex-col items-center justify-center gap-2 btn-active"><i className="fas fa-map-marked-alt text-2xl"></i><span className="font-black text-[11px] uppercase tracking-tighter text-center leading-tight">Logística<br />Deslocamento</span></button>
-                            </div>
+                            {!activeDisposal && (
+                                <button onClick={() => { setActiveAction({ type: 'disposal', step: 'start', photoBefore: null }); setView('disposal_form'); }} className="w-full bg-blue-600 text-white p-6 rounded-3xl shadow-sm flex items-center justify-center gap-4 btn-active"><i className="fas fa-truck-loading text-2xl"></i><span className="font-black text-lg uppercase tracking-tighter">Destinação de Galhos</span></button>
+                            )}
 
                             <button onClick={() => { setActiveAction({ type: 'pause', isPaused: false, photosBefore: [], photosAfter: [] }); setView('global_pause_form'); }} className="w-full bg-white border-2 border-slate-200 text-slate-600 p-6 rounded-3xl shadow-sm flex items-center justify-center gap-4 btn-active"><i className="fas fa-pause-circle text-2xl"></i><span className="font-black text-lg uppercase tracking-tighter text-center">Registrar Parada<br /><span className="text-[10px] opacity-60">(Almoço / Chuva / Quebra)</span></span></button>
                         </div>
@@ -873,7 +939,6 @@
                                     const endTime = new Date();
                                     setShift({ ...shift, journeyEndTime: Date.now() });
 
-                                    // Envia Fechamento para o Banco
                                     if (shift.id_banco) {
                                         addToSyncQueue('DB_UPDATE', {
                                             table: 'tb_turnos',
@@ -893,15 +958,9 @@
 
             if (view === 'tree_form') {
                 const source = activeAction.demandSource;
-
-                // LÓGICA DE CAMPOS OBRIGATÓRIOS
-                // Apenas 'os' (Protocolo Cidadão) e 'corte_protocolo' exigem número.
-                // Manutenção e Emergência NÃO exigem.
                 const isOsRequired = source === 'os' || source === 'corte_protocolo';
-
-                // Lógica de Renderização Dinâmica dos Serviços
                 const isEmergencia = source === 'emergencia';
-                const isCorteFixo = source === 'corte_protocolo'; // Corte com Laudo já é fixo "SUPRESSÃO"
+                const isCorteFixo = source === 'corte_protocolo'; 
                 const isPodaRotina = source === 'manutencao' || source === 'os';
 
                 return (
@@ -914,7 +973,6 @@
                                     <button
                                         key={f.id}
                                         onClick={() => {
-                                            // Ao mudar fonte, reseta tipos para evitar inconsistência
                                             setActiveAction({ ...activeAction, demandSource: f.id, pruningTypes: [] });
                                         }}
                                         className={`p-3 rounded-xl text-[10px] font-black uppercase transition-all ${activeAction.demandSource === f.id ? 'bg-audit-600 text-white border-audit-600 shadow-lg scale-[1.02]' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100 border-2'}`}
@@ -924,7 +982,6 @@
                                 ))}
                             </div>
 
-                            {/* CAMPO DE PROTOCOLO / OS */}
                             <div className={`transition-all duration-300 ${isOsRequired ? 'opacity-100 max-h-24' : 'opacity-50 max-h-24'}`}>
                                 <Label required={isOsRequired}>ID OS / Protocolo / Laudo</Label>
                                 <input
@@ -938,11 +995,9 @@
                             <Label required>Suspensão Rede (COPEL)?</Label>
                             <select className={`w-full p-4 border-2 rounded-2xl mb-4 font-black text-sm ${activeAction.copelRequired === 'SIM' ? 'border-amber-500 bg-amber-50' : 'bg-white'}`} value={activeAction.copelRequired || 'NÃO'} onChange={e => setActiveAction({ ...activeAction, copelRequired: e.target.value })}><option value="NÃO">NÃO NECESSÁRIO</option><option value="SIM">SIM (SOLICITAR DESLIGAMENTO)</option></select>
 
-                            {/* SEÇÃO DE SERVIÇOS - LÓGICA CONDICIAL COMPLEXA */}
                             <div className="bg-slate-50 p-4 rounded-2xl border-2 border-slate-100 mb-4">
                                 <Label required>Serviço a Executar</Label>
 
-                                {/* CASO 1: CORTE COM PROTOCOLO (FIXO) */}
                                 {isCorteFixo && (
                                     <div className="flex items-center gap-3 p-4 bg-red-50 border-2 border-red-200 rounded-xl">
                                         <i className="fas fa-skull-crossbones text-red-600 text-xl"></i>
@@ -956,7 +1011,6 @@
                                     </div>
                                 )}
 
-                                {/* CASO 2: EMERGÊNCIA (SELETOR BINÁRIO DE RISCO) */}
                                 {isEmergencia && (
                                     <div className="space-y-3">
                                         <p className="text-[10px] text-amber-600 font-black mb-2 flex items-center gap-2"><i className="fas fa-exclamation-triangle"></i> SELECIONE A AÇÃO DE CONTINGÊNCIA:</p>
@@ -977,7 +1031,6 @@
                                     </div>
                                 )}
 
-                                {/* CASO 3: MANUTENÇÃO / PODA ROTINA (LISTA DE PODAS DO EDITAL) */}
                                 {isPodaRotina && (
                                     <div className="grid grid-cols-1 gap-2">
                                         {TIPOS_PODA_DATA.map(t => (
@@ -1005,8 +1058,30 @@
                             <Label required>Espécie</Label>
                             <input list="especies" className="w-full p-4 border-2 rounded-2xl bg-slate-50 font-black mb-4 uppercase text-sm" placeholder="Pesquisar..." value={activeAction.species || ''} onChange={e => setActiveAction({ ...activeAction, species: e.target.value.toUpperCase() })} /><datalist id="especies">{LISTA_ESPECIES.map(s => <option key={s} value={s} />)}</datalist>
                             <div className="grid grid-cols-2 gap-4">
-                                <div><Label required>CAP (cm)</Label><input type="number" className="w-full p-4 border-2 rounded-2xl font-black text-sm" value={activeAction.cap || ''} onChange={e => setActiveAction({ ...activeAction, cap: e.target.value })} /></div>
-                                <div><Label required>Altura (m)</Label><input type="number" className="w-full p-4 border-2 rounded-2xl font-black text-sm" value={activeAction.height || ''} onChange={e => setActiveAction({ ...activeAction, height: e.target.value })} /></div>
+                                <div>
+                                    <Label required>CAP (cm)</Label>
+                                    <input type="number" min="1" max="2000" step="0.1"
+                                        className={`w-full p-4 border-2 rounded-2xl font-black text-sm ${activeAction.cap && (parseFloat(activeAction.cap) < 1 || parseFloat(activeAction.cap) > 2000) ? 'border-red-500 bg-red-50' : ''}`}
+                                        placeholder="1–2000"
+                                        value={activeAction.cap || ''}
+                                        onChange={e => setActiveAction({ ...activeAction, cap: e.target.value })}
+                                        onBlur={e => {
+                                            const v = parseFloat(e.target.value);
+                                            if (!isNaN(v) && (v < 1 || v > 2000)) alert(`CAP inválido: ${v} cm.\nIntervalo permitido: 1 a 2000 cm.`);
+                                        }} />
+                                </div>
+                                <div>
+                                    <Label required>Altura (m)</Label>
+                                    <input type="number" min="0.5" max="60" step="0.5"
+                                        className={`w-full p-4 border-2 rounded-2xl font-black text-sm ${activeAction.height && (parseFloat(activeAction.height) < 0.5 || parseFloat(activeAction.height) > 60) ? 'border-red-500 bg-red-50' : ''}`}
+                                        placeholder="0.5–60"
+                                        value={activeAction.height || ''}
+                                        onChange={e => setActiveAction({ ...activeAction, height: e.target.value })}
+                                        onBlur={e => {
+                                            const v = parseFloat(e.target.value);
+                                            if (!isNaN(v) && (v < 0.5 || v > 60)) alert(`Altura inválida: ${v} m.\nIntervalo permitido: 0.5 a 60 m.`);
+                                        }} />
+                                </div>
                             </div>
                         </Card>
                         <Card className={`border-2 ${activeAction.status === 'IMPEDIDO' ? 'border-red-600 bg-red-50' : 'border-slate-200 bg-white'}`}>
@@ -1016,67 +1091,101 @@
                             )}
                         </Card>
                         <Card className="border-2 border-audit-600 bg-emerald-50">
-                            <Label required>3 Fotos de Antes</Label>
-                            <div className="grid grid-cols-3 gap-2 mb-2">
-                                {[0, 1, 2].map(i => <PhotoUpload key={i} label={`F${i + 1}`} preview={activeAction.photosBefore?.[i]} onCapture={async f => {
-                                    const processed = await processPhoto(f, `ANTES_${i + 1}`);
-                                    setActiveAction(prev => {
-                                        const list = [...(prev.photosBefore || [])];
-                                        list[i] = processed;
-                                        return { ...prev, photosBefore: list };
-                                    });
-                                }} />)}
-                            </div>
+                            {activeAction.status !== 'IMPEDIDO' && (
+                                <>
+                                    <Label required>3 Fotos de Antes</Label>
+                                    <div className="grid grid-cols-3 gap-2 mb-2">
+                                        {[0, 1, 2].map(i => <PhotoUpload key={i} label={`F${i + 1}`} preview={activeAction.photosBefore?.[i]} onCapture={async f => {
+                                            const processed = await processPhoto(f, `ANTES_${i + 1}`);
+                                            setActiveAction(prev => {
+                                                const list = [...(prev.photosBefore || [])];
+                                                list[i] = processed;
+                                                return { ...prev, photosBefore: list };
+                                            });
+                                        }} />)}
+                                    </div>
+                                </>
+                            )}
                             {activeAction.status === 'IMPEDIDO' ? (
                                 <button disabled={!activeAction.species || !activeAction.problemReport || !activeAction.photoProblem} onClick={async () => {
                                     const treeId = generateTreeId(activeAction.species, activeAction.cap || 0, gps.lat, gps.lng);
-                                    const log = { ...activeAction, treeId, endTime: Date.now(), status: 'IMPEDIDO', coords: `${gps.lat},${gps.lng}`, timestamp: new Date().toISOString() };
+                                    const coordsStr = safeCoords(gps.lat, gps.lng);
+                                    const now = Date.now();
+                                    const log = {
+                                        ...activeAction,
+                                        treeId,
+                                        type: 'tree',
+                                        executionStartTime: now,
+                                        executionDurationSec: 0,
+                                        effectiveDurationSec: 0,
+                                        durationSec: 0,
+                                        formDurationSec: Math.floor((now - (activeAction.startTime || now)) / 1000),
+                                        endTime: now,
+                                        status: 'IMPEDIDO',
+                                        coords: coordsStr,
+                                        lat: safeFloat(gps.lat),
+                                        lng: safeFloat(gps.lng),
+                                        timestamp: new Date().toISOString()
+                                    };
                                     setLogs([log, ...logs]);
-                                    await pushToSupabase(log);
+                                    try { await pushToSupabase(log); } catch(e) { console.error('pushToSupabase impedimento:', e); }
                                     setActiveAction(null);
                                     setView('dashboard');
                                 }} className="w-full mt-4 py-6 rounded-3xl bg-red-600 text-white font-black uppercase text-xl shadow-lg disabled:opacity-50">Registrar Impedimento</button>
                             ) : (
-                                <button disabled={!activeAction.species || !activeAction.cap || !activeAction.height || (!isCorteFixo && !activeAction.pruningTypes?.length) || (isOsRequired && !activeAction.osId) || (activeAction.photosBefore?.filter(p => p).length < 3)} onClick={() => {
+                                <button disabled={!activeAction.species || !activeAction.cap || !activeAction.height || (parseFloat(activeAction.cap) < 1 || parseFloat(activeAction.cap) > 2000) || (parseFloat(activeAction.height) < 0.5 || parseFloat(activeAction.height) > 60) || (!isCorteFixo && !activeAction.pruningTypes?.length) || (isOsRequired && !activeAction.osId) || (activeAction.photosBefore?.filter(p => p).length < 3)} onClick={() => {
                                     try {
                                         const now = Date.now();
                                         const treeId = generateTreeId(activeAction.species, activeAction.cap, gps.lat, gps.lng);
+                                        const coordsStr = safeCoords(gps.lat, gps.lng);
                                         const duplicate = logs.find(l => l.treeId === treeId && l.type === 'tree');
-                                        let newActionState = null;
 
-                                        if (duplicate) {
-                                            const msg = `⚠️ ÁRVORE JÁ REGISTRADA HOJE!\n\nID: ${treeId}\nEspécie: ${activeAction.species}\n\nO que deseja fazer?`;
-                                            if (confirm(msg + "\n\n[OK] = CONTINUAR O SERVIÇO ANTERIOR (Não duplica contagem)\n[CANCELAR] = É OUTRA ÁRVORE IGUAL (Duplica contagem)")) {
-                                                newActionState = {
-                                                    ...activeAction,
-                                                    ...duplicate,
-                                                    photosBefore: activeAction.photosBefore?.length ? activeAction.photosBefore : duplicate.photosBefore,
-                                                    isContinuation: true,
-                                                    executionStartTime: now,
-                                                    formDurationSec: (duplicate.formDurationSec || 0) + Math.floor((now - activeAction.startTime) / 1000),
-                                                    treeCoords: `${gps.lat},${gps.lng}`
-                                                };
-                                                setLogs(logs.filter(l => l.treeId !== treeId));
-                                            }
-                                        }
-
-                                        if (!newActionState) {
-                                            newActionState = {
+                                        const proceedWithNew = () => {
+                                            const newActionState = {
                                                 ...activeAction,
                                                 treeId,
                                                 type: 'tree',
                                                 executionStartTime: now,
                                                 formDurationSec: Math.floor((now - activeAction.startTime) / 1000),
                                                 desc: `${activeAction.species} [${activeAction.osId || (activeAction.pruningTypes?.[0] || 'MANEJO')}]`,
-                                                treeCoords: `${gps.lat},${gps.lng}`,
+                                                treeCoords: coordsStr,
                                                 pruningTypes: activeAction.pruningTypes || []
                                             };
+                                            if (!newActionState.desc) newActionState.desc = `${newActionState.species || 'ÁRVORE'} (SEM DESC)`;
+                                            setActiveAction(newActionState);
+                                            setView('active_service');
+                                        };
+
+                                        if (duplicate) {
+                                            showConfirm(
+                                                '⚠️ Árvore já registrada hoje!',
+                                                `ID: ${treeId}\nEspécie: ${activeAction.species}\n\nO que deseja fazer?`,
+                                                () => {
+                                                    const continuationState = {
+                                                        ...activeAction,
+                                                        ...duplicate,
+                                                        photosBefore: activeAction.photosBefore?.length ? activeAction.photosBefore : duplicate.photosBefore,
+                                                        isContinuation: true,
+                                                        executionStartTime: now,
+                                                        formDurationSec: (duplicate.formDurationSec || 0) + Math.floor((now - activeAction.startTime) / 1000),
+                                                        treeCoords: coordsStr
+                                                    };
+                                                    setLogs(logs.filter(l => l.treeId !== treeId));
+                                                    if (!continuationState.desc) continuationState.desc = `${continuationState.species || 'ÁRVORE'} (CONTINUAÇÃO)`;
+                                                    setActiveAction(continuationState);
+                                                    setConfirmModal(null);
+                                                    setView('active_service');
+                                                },
+                                                () => {
+                                                    setConfirmModal(null);
+                                                    proceedWithNew();
+                                                },
+                                                'Continuar Serviço Anterior',
+                                                'É Outra Árvore Igual'
+                                            );
+                                        } else {
+                                            proceedWithNew();
                                         }
-
-                                        if (!newActionState.desc) newActionState.desc = `${newActionState.species || 'ÁRVORE'} (SEM DESC)`;
-                                        setActiveAction(newActionState);
-                                        setView('active_service');
-
                                     } catch (err) {
                                         alert("ERRO CRÍTICO AO INICIAR: " + err.message);
                                         console.error(err);
@@ -1116,14 +1225,16 @@
                                     const now = Date.now();
                                     const execDuration = Math.floor((now - activeAction.executionStartTime) / 1000);
                                     const effectiveDuration = execDuration - (activeAction.totalPausedSeconds || 0);
-
+                                    const coordsStr = activeAction.treeCoords || safeCoords(gps.lat, gps.lng);
                                     const log = {
                                         ...activeAction,
                                         endTime: now,
                                         durationSec: Math.floor((now - activeAction.startTime) / 1000),
                                         executionDurationSec: execDuration,
                                         effectiveDurationSec: effectiveDuration,
-                                        coords: activeAction.treeCoords || `${gps.lat},${gps.lng}`,
+                                        coords: coordsStr,
+                                        lat: coordsStr ? safeFloat(coordsStr.split(',')[0]) : null,
+                                        lng: coordsStr ? safeFloat(coordsStr.split(',')[1]) : null,
                                         status: 'OK',
                                         timestamp: new Date().toISOString()
                                     };
@@ -1138,7 +1249,6 @@
                 );
             }
 
-            // PAUSAS
             if (view === 'global_pause_form' || view === 'pause_during_tree') {
                 const isOther = activeAction?.tempPauseReason === 'Outros';
                 return (
@@ -1152,7 +1262,13 @@
                             )}
                             <PhotoUpload label="FOTO PAUSA" onCapture={async f => setActiveAction({ ...activeAction, tempPausePhoto: await processPhoto(f, 'PAUSA') })} preview={activeAction?.tempPausePhoto} />
                         </Card>
-                        <button disabled={!activeAction?.tempPauseReason || !activeAction?.tempPausePhoto || (isOther && !activeAction.customPauseReason)} onClick={() => { const now = Date.now(); setActiveAction({ ...activeAction, type: activeAction?.type || 'pause', isPaused: true, pauseStartTime: now, startTime: activeAction?.startTime || now, pauseCoords: `${gps.lat},${gps.lng}` }); setPauseElapsed(0); setView('active_pause_screen'); }} className="w-full py-6 rounded-3xl bg-amber-600 text-white font-black text-xl uppercase shadow-xl disabled:opacity-50">Confirmar Pausa</button>
+                        <button disabled={!activeAction?.tempPauseReason || !activeAction?.tempPausePhoto || (isOther && !activeAction.customPauseReason)} onClick={() => {
+                            const now = Date.now();
+                            const pauseCoords = safeCoords(gps.lat, gps.lng);
+                            setActiveAction({ ...activeAction, type: activeAction?.type || 'pause', isPaused: true, pauseStartTime: now, startTime: activeAction?.startTime || now, pauseCoords });
+                            setPauseElapsed(0);
+                            setView('active_pause_screen');
+                        }} className="w-full py-6 rounded-3xl bg-amber-600 text-white font-black text-xl uppercase shadow-xl disabled:opacity-50">Confirmar Pausa</button>
                         <button onClick={() => setView(activeAction.type === 'tree' ? 'active_service' : 'dashboard')} className="w-full p-5 text-slate-400 font-black uppercase text-[10px] tracking-widest underline decoration-dotted">Voltar</button>
                     </div>
                 );
@@ -1164,88 +1280,86 @@
                     <div className="flex-1 flex flex-col justify-center items-center"><div className="fit-timer font-black text-amber-500 pause-glow leading-none font-mono tracking-tighter">{formatDuration(pauseElapsed)}</div></div>
                     <button onClick={async () => {
                         const pDur = Math.floor((Date.now() - activeAction.pauseStartTime) / 1000);
-                        if (activeAction.type === 'pause') { const log = { ...activeAction, endTime: Date.now(), durationSec: pDur, status: 'PAUSA', timestamp: new Date().toISOString(), coords: activeAction.pauseCoords || `${gps.lat},${gps.lng}` }; setLogs([log, ...logs]); await pushToSupabase(log); setActiveAction(null); setView('dashboard'); }
-                        else { setActiveAction({ ...activeAction, isPaused: false, totalPausedSeconds: (activeAction.totalPausedSeconds || 0) + pDur, tempPauseReason: null, tempPausePhoto: null, customPauseReason: null }); setView('active_service'); }
+                        const logCoords = activeAction.pauseCoords || safeCoords(gps.lat, gps.lng);
+                        if (activeAction.type === 'pause') {
+                            const log = { ...activeAction, endTime: Date.now(), durationSec: pDur, status: 'PAUSA', timestamp: new Date().toISOString(), coords: logCoords };
+                            setLogs([log, ...logs]);
+                            await pushToSupabase(log);
+                            setActiveAction(null);
+                            setView('dashboard');
+                        } else {
+                            setActiveAction({ ...activeAction, isPaused: false, totalPausedSeconds: (activeAction.totalPausedSeconds || 0) + pDur });
+                            setView('active_service');
+                        }
                     }} className="bg-emerald-600 text-white py-7 rounded-[2rem] font-black text-2xl mb-12 uppercase mx-4 shadow-xl">Retomar Operação</button>
                 </div>
             );
 
-            // TELA DE DESTINAÇÃO (CARGA/DESCARTE)
             if (view === 'disposal_form') {
+                const isStart = !activeDisposal || activeDisposal.step === 'start';
                 return (
                     <div className="p-6 screen-fade no-scrollbar flex flex-col min-h-screen">
-                        <div className="flex items-center gap-4 mb-6"><button onClick={() => { setActiveAction(null); setView('dashboard'); }} className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center"><i className="fas fa-arrow-left"></i></button><h2 className="text-xl font-black text-slate-800 uppercase italic">Destinação</h2></div>
+                        <div className="flex items-center gap-4 mb-6"><button onClick={() => { setView('dashboard'); }} className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center"><i className="fas fa-arrow-left"></i></button><h2 className="text-xl font-black text-slate-800 uppercase italic leading-none">{isStart ? 'Início Destinação' : 'Fim Destinação'}</h2></div>
+
                         <Card className="bg-blue-50 border-blue-200">
-                            <p className="text-[11px] font-black text-blue-800 uppercase mb-4">Inicie o cronômetro ao começar a carga ou deslocamento para descarte.</p>
-                            <div className="text-center py-8">
-                                <div className="text-5xl font-black text-blue-900 font-mono tracking-tighter">{formatDuration(elapsed)}</div>
-                            </div>
+                            <p className="text-[11px] font-black text-blue-800 uppercase text-center">
+                                {isStart ? 'Registre a foto do início da carga/transbordo para iniciar o cronômetro.' : 'Manejo em curso. Registre a foto final no ponto de descarte.'}
+                            </p>
+                            {!isStart && (
+                                <div className="mt-4 text-[10px] font-bold text-blue-600 text-center uppercase">
+                                    Tempo Decorrido: <span className="font-mono">{formatDuration(disposalElapsed)}</span>
+                                </div>
+                            )}
                         </Card>
+
                         <Card>
-                            <Label required>Foto da Evidência (Carga ou Local de Descarte)</Label>
-                            <PhotoUpload label="FOTO DESTINAÇÃO" preview={activeAction.photoDisposal} onCapture={async f => setActiveAction({ ...activeAction, photoDisposal: await processPhoto(f, 'DESTINACAO') })} />
+                            <Label required>{isStart ? 'Foto de Início de Carga' : 'Foto de Finalização (Descarte)'}</Label>
+                            {isStart ? (
+                                <PhotoUpload label="FOTO INÍCIO" preview={activeDisposal?.photoBefore} onCapture={async f => {
+                                    const p = await processPhoto(f, 'DEST_INICIO');
+                                    setActiveDisposal({ step: 'start', photoBefore: p, type: 'disposal' });
+                                }} />
+                            ) : (
+                                <PhotoUpload label="FOTO FINAL" preview={activeDisposal?.photoAfter} onCapture={async f => {
+                                    const p = await processPhoto(f, 'DEST_FIM');
+                                    setActiveDisposal({ ...activeDisposal, photoAfter: p });
+                                }} />
+                            )}
                         </Card>
+
                         <div className="mt-auto pb-8">
-                            <button disabled={!activeAction.photoDisposal} onClick={async () => {
-                                const now = Date.now();
-                                const log = {
-                                    ...activeAction,
-                                    type: 'disposal',
-                                    endTime: now,
-                                    durationSec: Math.floor((now - activeAction.startTime) / 1000),
-                                    coords: `${gps.lat},${gps.lng}`,
-                                    status: 'OK',
-                                    timestamp: new Date().toISOString()
-                                };
-                                setLogs([log, ...logs]);
-                                await pushToSupabase(log);
-                                setActiveAction(null);
-                                setView('dashboard');
-                            }} className="w-full py-6 rounded-3xl bg-blue-600 text-white font-black text-xl uppercase shadow-xl disabled:opacity-50">Finalizar Destinação</button>
+                            {isStart ? (
+                                <button disabled={!activeDisposal?.photoBefore} onClick={() => {
+                                    setActiveDisposal({ ...activeDisposal, step: 'running', startTime: Date.now() });
+                                    setView('dashboard');
+                                }} className="w-full py-6 rounded-3xl bg-blue-600 text-white font-black text-xl uppercase shadow-xl disabled:opacity-50">Confirmar Início</button>
+                            ) : (
+                                <button disabled={!activeDisposal?.photoAfter} onClick={async () => {
+                                    const now = Date.now();
+                                    const dispCoords = safeCoords(gps.lat, gps.lng);
+                                    const log = {
+                                        ...activeDisposal,
+                                        endTime: now,
+                                        durationSec: Math.floor((now - activeDisposal.startTime) / 1000),
+                                        coords: dispCoords,
+                                        lat: safeFloat(gps.lat),
+                                        lng: safeFloat(gps.lng),
+                                        status: 'OK',
+                                        timestamp: new Date().toISOString(),
+                                        type: 'disposal'
+                                    };
+                                    setLogs([log, ...logs]);
+                                    await pushToSupabase(log);
+                                    setActiveDisposal(null);
+                                    setDisposalElapsed(0);
+                                    setView('dashboard');
+                                }} className="w-full py-6 rounded-3xl bg-audit-900 text-white font-black text-xl uppercase shadow-xl disabled:opacity-50">Encerrar Destinação</button>
+                            )}
                         </div>
                     </div>
                 );
             }
 
-            // TELA DE LOGÍSTICA
-            if (view === 'logistics_form') {
-                return (
-                    <div className="p-6 screen-fade no-scrollbar flex flex-col min-h-screen">
-                        <div className="flex items-center gap-4 mb-6"><button onClick={() => { setActiveAction(null); setView('dashboard'); }} className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center"><i className="fas fa-arrow-left"></i></button><h2 className="text-xl font-black text-slate-800 uppercase italic">Logística</h2></div>
-                        <Card className="bg-amber-50 border-amber-200">
-                            <Label required>Motivo do Deslocamento</Label>
-                            <select className="w-full p-4 border-2 rounded-2xl mb-4 font-black bg-white text-sm uppercase" value={activeAction.tempPauseReason || ''} onChange={e => setActiveAction({ ...activeAction, tempPauseReason: e.target.value })}><option value="">Selecione...</option>{LOGISTICA_REASONS.map(r => <option key={r} value={r}>{r}</option>)}</select>
-                            <div className="text-center py-4">
-                                <div className="text-5xl font-black text-amber-900 font-mono tracking-tighter">{formatDuration(elapsed)}</div>
-                            </div>
-                        </Card>
-                        <Card>
-                            <Label>Foto Opcional (Painel / Trajeto)</Label>
-                            <PhotoUpload label="FOTO LOGÍSTICA" preview={activeAction.tempPausePhoto} onCapture={async f => setActiveAction({ ...activeAction, tempPausePhoto: await processPhoto(f, 'LOGISTICA') })} />
-                        </Card>
-                        <div className="mt-auto pb-8">
-                            <button disabled={!activeAction.tempPauseReason} onClick={async () => {
-                                const now = Date.now();
-                                const log = {
-                                    ...activeAction,
-                                    type: 'logistics',
-                                    endTime: now,
-                                    durationSec: Math.floor((now - activeAction.startTime) / 1000),
-                                    coords: `${gps.lat},${gps.lng}`,
-                                    status: 'OK',
-                                    timestamp: new Date().toISOString()
-                                };
-                                setLogs([log, ...logs]);
-                                await pushToSupabase(log);
-                                setActiveAction(null);
-                                setView('dashboard');
-                            }} className="w-full py-6 rounded-3xl bg-amber-600 text-white font-black text-xl uppercase shadow-xl disabled:opacity-50">Finalizar Deslocamento</button>
-                        </div>
-                    </div>
-                );
-            }
-
-            // ✅ END DAY COM CONFIRMAÇÃO DE DOWNLOAD
             if (view === 'end_day') return (
                 <div className="p-6 screen-fade text-center pb-12 no-scrollbar">
                     <i className="fas fa-circle-check text-audit-600 text-5xl mb-4"></i><h2 className="text-2xl font-black text-audit-900 uppercase">Resumo Diário</h2>
@@ -1261,34 +1375,29 @@
                     <button disabled={isExporting} onClick={async () => {
                         setIsExporting(true);
                         try {
-                            const safePlaca = (shift?.placa || 'SEM_PLACA').replace(/[^a-zA-Z0-9]/g, '');
+                            const exportLogs = [...logs];
+                            const exportShift = { ...shift };
+
+                            const safePlaca = (exportShift?.placa || 'SEM_PLACA').replace(/[^a-zA-Z0-9]/g, '');
                             const journeyDate = (() => {
-                                if (!shift.journeyDate) return new Date().toISOString().split('T')[0];
-                                const parts = shift.journeyDate.split('/');
+                                if (!exportShift.journeyDate) return new Date().toISOString().split('T')[0];
+                                const parts = exportShift.journeyDate.split('/');
                                 if (parts.length === 3) return `${parts[2]}-${parts[1]}-${parts[0]}`;
                                 return new Date().toISOString().split('T')[0];
                             })();
 
-                            // ========================================
-                            // 🚀 ENVIO PARA BANCO DE DADOS SUPABASE
-                            // ========================================
-                            // ========================================
-                            // 🚀 CORREÇÃO: ENVIO INTELIGENTE (UPSERT)
-                            // ========================================
-                            let shiftId = shift.id_banco; // Tenta usar o ID guardado no início do dia
+                            let shiftId = exportShift.id_banco; 
 
                             try {
                                 console.log('📤 Enviando dados para Supabase...');
 
-                                // 1. VERIFICAÇÃO/ATUALIZAÇÃO DO SHIFT
-                                // Se não tivermos o ID localmente, buscamos no banco para evitar erro 409
                                 if (!shiftId) {
                                     const { data: existingShift } = await supabaseClient
                                         .from('shifts')
                                         .select('id')
                                         .eq('journey_date', journeyDate)
-                                        .eq('rt', shift.rt)
-                                        .eq('operador', shift.operador)
+                                        .eq('rt', exportShift.rt)
+                                        .eq('operador', exportShift.operador)
                                         .maybeSingle();
 
                                     if (existingShift) {
@@ -1297,72 +1406,58 @@
                                 }
 
                                 const shiftPayload = {
-                                    rt: shift.rt,
-                                    tst: shift.tst || null,
-                                    operador: shift.operador,
-                                    placa: shift.placa,
-                                    auxiliares: shift.auxiliares || [],
-                                    placa_aux: shift.placaAux || null,
-                                    dds_image_path: shift.foto_unificada?.storagePath || null, // Usa o caminho do Storage, não base64
-                                    journey_start_time: new Date(shift.journeyStartTime).toLocaleTimeString('pt-BR', { hour12: false }),
+                                    rt: exportShift.rt,
+                                    tst: exportShift.tst || null,
+                                    operador: exportShift.operador,
+                                    placa: exportShift.placa,
+                                    auxiliares: exportShift.auxiliares || [],
+                                    placa_aux: exportShift.placaAux || null,
+                                    dds_image_path: exportShift.foto_unificada?.storagePath || null,
+                                    journey_start_time: new Date(exportShift.journeyStartTime).toLocaleTimeString('pt-BR', { hour12: false }),
                                     journey_date: journeyDate,
-                                    status: 'FECHADO' // Marca como fechado
+                                    status: 'FECHADO'
                                 };
 
                                 if (shiftId) {
-                                    // ATUALIZA (UPDATE) se já existe
                                     const { error: updateError } = await supabaseClient
                                         .from('shifts')
                                         .update(shiftPayload)
                                         .eq('id', shiftId);
-
                                     if (updateError) throw updateError;
                                     console.log('✅ Shift atualizado:', shiftId);
                                 } else {
-                                    // INSERE (INSERT) se não existe
                                     const { data: newShift, error: insertError } = await supabaseClient
                                         .from('shifts')
                                         .insert([shiftPayload])
                                         .select()
                                         .single();
-
                                     if (insertError) throw insertError;
                                     shiftId = newShift.id;
                                     console.log('✅ Shift criado:', shiftId);
                                 }
 
-                                // 2. Inserir LOGS (Árvores e Pausas)
-                                if (logs && logs.length > 0) {
-                                    const logsToInsert = logs.map(log => {
+                                if (exportLogs && exportLogs.length > 0) {
+                                    const logsToInsert = exportLogs.map(log => {
                                         const [lat, lng] = (log.coords || ',').split(',');
-
-                                        // Prepara objeto de fotos corrigido para o Gestor ler
                                         const photosJson = {};
-                                        // Mapeia ANTES
                                         log.photosBefore?.forEach((item, i) => {
                                             if (item?.storagePath) photosJson[`A${i + 1}`] = supabaseClient.storage.from('evidencias').getPublicUrl(item.storagePath).data.publicUrl;
                                         });
-                                        // Mapeia DEPOIS
                                         log.photosAfter?.forEach((item, i) => {
                                             if (item?.storagePath) photosJson[`D${i + 1}`] = supabaseClient.storage.from('evidencias').getPublicUrl(item.storagePath).data.publicUrl;
                                         });
-                                        // Mapeia PAUSA OU DESTINAÇÃO
-                                        if (log.tempPausePhoto?.storagePath) {
-                                            photosJson['PAUSA'] = supabaseClient.storage.from('evidencias').getPublicUrl(log.tempPausePhoto.storagePath).data.publicUrl;
-                                        }
-                                        if (log.photoDisposal?.storagePath) {
-                                            photosJson['DEST'] = supabaseClient.storage.from('evidencias').getPublicUrl(log.photoDisposal.storagePath).data.publicUrl;
-                                        }
-                                        // Mapeia IMPEDIMENTO
-                                        if (log.photoProblem?.storagePath) {
-                                            photosJson['IMP'] = supabaseClient.storage.from('evidencias').getPublicUrl(log.photoProblem.storagePath).data.publicUrl;
-                                        }
+                                        if (log.tempPausePhoto?.storagePath) photosJson['PAUSA'] = supabaseClient.storage.from('evidencias').getPublicUrl(log.tempPausePhoto.storagePath).data.publicUrl;
+                                        if (log.photoDisposal?.storagePath) photosJson['DEST'] = supabaseClient.storage.from('evidencias').getPublicUrl(log.photoDisposal.storagePath).data.publicUrl;
+                                        if (log.photoBefore?.storagePath) photosJson['DEST_A'] = supabaseClient.storage.from('evidencias').getPublicUrl(log.photoBefore.storagePath).data.publicUrl;
+                                        if (log.photoAfter?.storagePath) photosJson['DEST_D'] = supabaseClient.storage.from('evidencias').getPublicUrl(log.photoAfter.storagePath).data.publicUrl;
+                                        if (log.photoProblem?.storagePath) photosJson['IMP'] = supabaseClient.storage.from('evidencias').getPublicUrl(log.photoProblem.storagePath).data.publicUrl;
 
                                         return {
                                             shift_id: shiftId,
                                             type: log.type || 'tree',
                                             status: log.status || 'OK',
                                             species: log.species || null,
+                                            tree_desc: log.species || log.desc || 'NÃO IDENTIFICADA',
                                             cap: log.cap ? parseFloat(log.cap) : null,
                                             height: log.height ? parseFloat(log.height) : null,
                                             pruning_types: log.pruningTypes || [],
@@ -1374,69 +1469,79 @@
                                             timestamp: log.timestamp || new Date().toISOString(),
                                             duration_sec: log.durationSec || null,
                                             effective_duration_sec: log.effectiveDurationSec || null,
-                                            // 🚀 CORREÇÃO: TEMPOS SEPARADOS PARA BI (SEM INVERSÃO)
-                                            execution_duration_sec: log.type === 'tree' ? log.effectiveDurationSec : log.durationSec,
-                                            form_duration_sec: log.type === 'tree' ? log.formDurationSec : 0,
+                                            execution_duration_sec: log.executionDurationSec || log.durationSec || 0,
+                                            form_duration_sec: log.type === 'tree' ? (log.formDurationSec || 0) : 0,
                                             total_paused_seconds: log.totalPausedSeconds || 0,
                                             coords: log.coords || null,
                                             lat: lat ? parseFloat(lat) : null,
                                             lng: lng ? parseFloat(lng) : null,
-
-                                            // Pausas e Impedimentos (Texto)
                                             temp_pause_reason: log.tempPauseReason || null,
                                             custom_pause_reason: log.customPauseReason || null,
                                             problem_report: log.problemReport || null,
-
-                                            // CRUCIAL: Manda o JSON de fotos com URLs públicas para o Gestor ler
                                             photos: photosJson
                                         };
                                     });
 
-                                    const { error: logsError } = await supabaseClient
-                                        .from('logs')
-                                        .insert(logsToInsert);
-
-                                    if (logsError) {
-                                        console.error('❌ Erro ao inserir logs:', logsError);
-                                        throw logsError;
-                                    }
-
+                                    const { error: logsError } = await supabaseClient.from('logs').insert(logsToInsert);
+                                    if (logsError) { console.error('❌ Erro ao inserir logs:', logsError); throw logsError; }
                                     console.log(`✅ ${logsToInsert.length} logs inseridos com sucesso!`);
                                 }
 
-                                alert(`✅ DADOS SINCRONIZADOS COM SUCESSO!\n\nTurno atualizado e ${logs.length} registros enviados.`);
+                                alert(`✅ DADOS SINCRONIZADOS COM SUCESSO!\n\nTurno atualizado e ${exportLogs.length} registros enviados.`);
 
                             } catch (dbError) {
                                 console.error('❌ Erro no processo:', dbError);
                                 alert(`⚠️ Erro na sincronização: ${dbError.message}\n\nO backup local (ZIP/JSON) será gerado para segurança.`);
                             }
 
-                            // 1. Prioridade: Upload do JSON de Dados (Leve e Essencial)
                             try {
-                                const jsonBlob = new Blob([JSON.stringify({ shift, logs }, null, 2)], { type: 'application/json' });
+                                const jsonBlob = new Blob([JSON.stringify({ shift: exportShift, logs: exportLogs }, null, 2)], { type: 'application/json' });
                                 const jsonName = `DADOS_TURNO/${journeyDate}_${safePlaca}.json`;
                                 await supabaseClient.storage.from('backups_zip').upload(jsonName, jsonBlob, { upsert: true });
                             } catch (err) { console.warn("Erro ao salvar JSON na nuvem:", err); }
 
-                            // 2. Geração Otimizada do ZIP (Sem estourar memória)
                             const zip = new JSZip();
 
-                            // GARANTIA DE INTEGRIDADE DDS: Copia o path da foto unificada para o campo esperado pelo Gestor
-                            if (!shift.dds_image_path && shift.foto_unificada?.storagePath) {
-                                shift.dds_image_path = shift.foto_unificada.storagePath;
+                            if (!exportShift.dds_image_path && exportShift.foto_unificada?.storagePath) {
+                                exportShift.dds_image_path = exportShift.foto_unificada.storagePath;
                             }
 
-                            zip.file("RELATORIO_DETALHADO.json", JSON.stringify({ shift, logs }, null, 2));
+                            zip.file("RELATORIO_DETALHADO.json", JSON.stringify({ shift: exportShift, logs: exportLogs }, null, 2));
+
+                            const csvCols = [
+                                "ID_ITEM", "DATA", "OPERADOR", "PLACA", "TIPO", "PROTOCOLO", "ESPECIE", "CAP", "ALTURA",
+                                "SERVICOS", "STATUS", "INICIO", "FIM", "DURACAO_SEG", "REFERENCIA_FOTOS"
+                            ];
+                            const csvHeader = csvCols.join(";") + "\n";
+                            const csvRows = exportLogs.map((l, idx) => {
+                                const photoRef = l.type === 'tree' ? `ARV_${idx}` : `LOG_${idx}`;
+                                return [
+                                    idx + 1,
+                                    exportShift.journeyDate,
+                                    exportShift.operador,
+                                    exportShift.placa,
+                                    l.type?.toUpperCase(),
+                                    l.osId || 'ROTINA',
+                                    l.species || 'N/A',
+                                    l.cap || '',
+                                    l.height || '',
+                                    (l.pruningTypes || []).join(", "),
+                                    l.status,
+                                    new Date(l.startTime).toLocaleTimeString(),
+                                    l.endTime ? new Date(l.endTime).toLocaleTimeString() : '',
+                                    l.durationSec || 0,
+                                    photoRef
+                                ].join(";");
+                            }).join("\n");
+
+                            zip.file("PLANILHA_EXCEL_DIARIA.csv", "\ufeff" + csvHeader + csvRows);
                             const imgs = zip.folder("EVIDENCIAS");
 
-                            // FUNÇÃO UNIVERSAL DE RECUPERAÇÃO DE EVIDÊNCIAS (Local -> Nuvem)
                             const getImageData = async (imgObj) => {
                                 if (!imgObj) return null;
-                                // 1. Tenta memória local (Instantâneo)
                                 const data = imgObj.base64 || imgObj.localPreview;
                                 if (data && data.includes(',')) return data.split(',')[1];
 
-                                // 2. Tenta baixar da Nuvem (Fallback de Segurança)
                                 const path = imgObj.storagePath || imgObj.dds_image_path || imgObj.path;
                                 if (path) {
                                     try {
@@ -1456,13 +1561,11 @@
                                 return null;
                             };
 
-                            // --- 1. FOTO DE ABERTURA (DDS) ---
-                            // Cria objeto compatível com a função universal e aguarda download se precisar
                             try {
                                 const ddsObj = {
-                                    base64: shift.foto_unificada?.base64,
-                                    localPreview: shift.foto_unificada?.localPreview,
-                                    dds_image_path: shift.dds_image_path // Agora garantido pela linha 1324
+                                    base64: exportShift.foto_unificada?.base64,
+                                    localPreview: exportShift.foto_unificada?.localPreview,
+                                    dds_image_path: exportShift.dds_image_path
                                 };
                                 const ddsBase64 = await getImageData(ddsObj);
                                 if (ddsBase64) {
@@ -1474,15 +1577,19 @@
                                 console.error("Erro ao processar DDS:", e);
                             }
 
-                            // Processamento Sequencial para garantir integridade
-                            for (let idx = 0; idx < logs.length; idx++) {
-                                const l = logs[idx];
+                            for (let idx = 0; idx < exportLogs.length; idx++) {
+                                const l = exportLogs[idx];
 
                                 const pPausa = await getImageData(l.tempPausePhoto);
                                 if (pPausa) imgs.file(`LOG_${idx}_PAUSA.jpg`, pPausa, { base64: true });
 
                                 const pImp = await getImageData(l.photoProblem);
                                 if (pImp) imgs.file(`LOG_${idx}_IMPEDIMENTO.jpg`, pImp, { base64: true });
+
+                                const pDestA = await getImageData(l.photoBefore);
+                                if (pDestA) imgs.file(`LOG_${idx}_DEST_A.jpg`, pDestA, { base64: true });
+                                const pDestD = await getImageData(l.photoAfter);
+                                if (pDestD) imgs.file(`LOG_${idx}_DEST_D.jpg`, pDestD, { base64: true });
 
                                 if (l.photosBefore) {
                                     for (let i = 0; i < l.photosBefore.length; i++) {
@@ -1499,20 +1606,17 @@
                                 }
                             }
 
-                            // Gerar ZIP com compressão LEVE (STORE) para evitar travamento do navegador
                             const blob = await zip.generateAsync({
                                 type: "blob",
-                                compression: "STORE",  // Sem compressão pesada
+                                compression: "STORE",  
                                 streamFiles: true
                             });
 
-                            // 3. Upload do ZIP para Nuvem (Backup Final)
                             try {
                                 const fileName = `Backup_Completo_${journeyDate}_${safePlaca}.zip`;
                                 await supabaseClient.storage.from('backups_zip').upload(fileName, blob, { upsert: true });
                             } catch (err) { console.error("Erro no backup nuvem ZIP", err); }
 
-                            // 4. Download Local Seguro
                             const a = document.createElement("a");
                             a.href = URL.createObjectURL(blob);
                             a.download = `RAD_MCR_${journeyDate}_${safePlaca}.zip`;
@@ -1530,10 +1634,11 @@
                 </div>
             );
 
-            // ✅ TELA DE CONFIRMAÇÃO DE DOWNLOAD
             if (view === 'download_confirm') {
-                // Marca saída como segura pois finalizou o turno
+                const hmacSecret = shift?.id_banco || 'MCR_RAD_V21_FALLBACK';
+                const safetyHmac = CryptoJS.HmacSHA256('safe', hmacSecret).toString().slice(0, 20);
                 localStorage.setItem('mcr_safety_exit', 'safe');
+                localStorage.setItem('mcr_safety_exit_hmac', safetyHmac);
 
                 return (
                     <div className="min-h-screen bg-emerald-600 flex flex-col items-center justify-center p-8 text-center text-white screen-fade">
@@ -1541,7 +1646,7 @@
                             <i className="fas fa-check text-4xl text-emerald-600"></i>
                         </div>
                         <h1 className="text-4xl font-black mb-2 uppercase">Turno Finalizado!</h1>
-                        <p className="font-medium opacity-80 mb-8 max-w-xs mx-auto">Os dados foram sincronizados com sucesso. O arquivo de backup foi gerado e salvo na nuvem.</p>
+                        <p className="font-medium opacity-80 mb-8 max-w-xs mx-auto">Os dados foram sincronizados com sucesso. O arquivo ZIP contém as fotos e a <b>PLANILHA EXCEL</b> para seu relatório mensal (RAM).</p>
 
                         <div className="space-y-3 w-full max-w-sm">
                             <button onClick={() => {
@@ -1552,9 +1657,13 @@
                             }} className="w-full py-4 rounded-xl bg-white/20 hover:bg-white/30 font-bold uppercase transition backdrop-blur-sm border border-white/30">Baixar Novamente</button>
 
                             <button onClick={async () => {
-                                // Limpeza Segura
+                                if (syncQueue.length > 0) {
+                                    alert(`⚠️ Aguarde: ${syncQueue.length} item(s) ainda sendo enviados.`);
+                                    return;
+                                }
                                 await idbKeyval.clear();
-                                localStorage.removeItem('mcr_safety_exit'); // Remove flag de alerta
+                                localStorage.removeItem('mcr_safety_exit');
+                                localStorage.removeItem('mcr_safety_exit_hmac');
                                 window.location.reload();
                             }} className="w-full py-4 rounded-xl bg-white text-emerald-700 font-black uppercase shadow-xl hover:scale-105 transition">Iniciar Novo Turno</button>
                         </div>
@@ -1564,6 +1673,27 @@
             }
 
             if (view === 'loading') return <div className="h-screen bg-audit-900 flex items-center justify-center text-white font-black italic animate-pulse">RAD PODA v21...</div>;
+
+            if (confirmModal) return (
+                <div className="fixed inset-0 z-[99999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-6 screen-fade">
+                    <div className="bg-white w-full max-w-sm rounded-[2rem] p-8 shadow-2xl text-center">
+                        <i className="fas fa-exclamation-triangle text-amber-500 text-4xl mb-4"></i>
+                        <h3 className="text-lg font-black text-slate-800 uppercase leading-tight mb-2">{confirmModal.title}</h3>
+                        <p className="text-sm text-slate-500 mb-8 whitespace-pre-line">{confirmModal.body}</p>
+                        <div className="space-y-3">
+                            <button onClick={confirmModal.onConfirm}
+                                className="w-full bg-audit-900 text-white py-4 rounded-2xl font-black uppercase shadow-lg text-sm">
+                                {confirmModal.confirmLabel}
+                            </button>
+                            <button onClick={confirmModal.onCancel}
+                                className="w-full bg-slate-100 text-slate-500 py-4 rounded-2xl font-black uppercase text-xs">
+                                {confirmModal.cancelLabel}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+
             return null;
         };
 
