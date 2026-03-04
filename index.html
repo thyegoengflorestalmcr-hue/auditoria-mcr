@@ -229,6 +229,34 @@
             { id: 'rh_5', item: '5', cargo: 'Eng. Florestal / Agrônomo', nivel: 'Nível Superior', quant: '1', obs: 'Responsável técnico geral. Preencher nome se atuando no dia.' }
         ];
 
+        // ============================================================
+        // 📋 CHECKLIST DDS — DIÁLOGO DIÁRIO DE SEGURANÇA (Seção 2 do Documento DDS)
+        // Ref: "DDS e Checklist RAD - serviço de poda e corte de árvores.pdf"
+        // ============================================================
+        const CHECKLIST_DDS = [
+            { id: 'dds_1', tema: 'Uso correto de EPI', ref: 'Cite: 11', obs: 'Verificação visual de todos os EPIs individuais obrigatórios conforme análise de risco.' },
+            { id: 'dds_2', tema: 'Trabalho em altura (NR-35)', ref: 'Cite: 11', obs: 'Orientações sobre ancoragem, cinto paraquedista, inspeção de cabos e procedimentos de emergência.' },
+            { id: 'dds_3', tema: 'Ferramentas e equipamentos', ref: 'Cite: 12', obs: 'Checagem do estado de ferramentas manuais, motosserras, motopodas e equipamentos de rigging.' },
+            { id: 'dds_4', tema: 'Riscos elétricos (Rede AT/BT)', ref: 'Cite: 11', obs: 'Identificação de fiações próximas, procedimentos de distância mínima e contato com COPEL.' },
+            { id: 'dds_5', tema: 'Sinalização viária e isolamento', ref: 'Cite: 12', obs: 'Orientações sobre cones, fitas, placas, barreiras e isolamento da área de queda de galhos.' },
+            { id: 'dds_6', tema: 'Condições climáticas', ref: 'Cite: 13', obs: 'Avaliação de vento, chuva, raios e decisão de início/parada dos trabalhos em altura.' }
+        ];
+
+        // ============================================================
+        // 📋 CHECKLIST DOCUMENTAL E OPERACIONAL (Seção 3 do Documento DDS)
+        // Ref: "DDS e Checklist RAD - serviço de poda e corte de árvores.pdf"
+        // ============================================================
+        const CHECKLIST_DOCUMENTAL = [
+            { id: 'doc_1', item: 'Veículo com CRLV em dia no local', ref: 'Cite: 30', obs: 'O CRLV do(s) veículo(s) deve estar dentro da validade e acessível no local de trabalho.' },
+            { id: 'doc_2', item: 'Treinamentos NR-10, 12 e 35 atualizados', ref: 'Art. 5.9', obs: 'Todos os trabalhadores devem ter certificados atualizados das NRs pertinentes.' },
+            { id: 'doc_3', item: 'Cesto aéreo e veículo operacionais', ref: 'Cite: 30', obs: 'Inspeção visual do cesto, sistema hidráulico e controles de elevação.' },
+            { id: 'doc_4', item: 'Motosserras/Podadores revisados', ref: 'Cite: 32', obs: 'Verificação de corrente, freio, lubrificação e dispositivos de segurança.' },
+            { id: 'doc_5', item: 'Motorista com CNH compatível e válida', ref: 'Art. 5.9', obs: 'CNH categoria D ou superior, dentro da validade.' },
+            { id: 'doc_6', item: 'Ordem de Serviço (OS) do dia conferida', ref: 'Cite: 27', obs: 'A OS do dia deve estar impressa ou disponível digitalmente e conferida com o Encarregado.' },
+            { id: 'doc_7', item: 'Kit de sinalização completo e visível', ref: 'Cite: 31', obs: 'Cones, fitas, placas e barreiras em quantidade e condição adequadas.' },
+            { id: 'doc_8', item: 'EPIs completos e em uso efetivo', ref: 'Cite: 33', obs: 'Todos os trabalhadores uniformizados e com EPIs efetivamente em uso (não apenas disponíveis).' }
+        ];
+
         // ✅ GERAR ID ÚNICO MD5
         const generateTreeId = (species, cap, lat, lng) => {
             // FIX: GPS pode ser null/undefined — usar 0.0000 como fallback neutro
@@ -284,6 +312,21 @@
             const [activeAction, setActiveAction] = useState(null);
             const [activeDisposal, setActiveDisposal] = useState(null);
             const [logs, setLogs] = useState([]);
+            const safeAddLog = (newLog) => {
+                setLogs(prev => {
+                    const isDupe = prev.some(l =>
+                        l.type === newLog.type &&
+                        Math.abs(new Date(l.endTime || 0).getTime() - new Date(newLog.endTime || 0).getTime()) < 5000 &&
+                        (l.treeId || '') === (newLog.treeId || '') &&
+                        (l.status || '') === (newLog.status || '')
+                    );
+                    if (isDupe) {
+                        console.warn('DUPLICATE LOG PREVENTED!', newLog);
+                        return prev;
+                    }
+                    return [newLog, ...prev];
+                });
+            };
             const [gps, setGps] = useState({ lat: null, lng: null });
             const [elapsed, setElapsed] = useState(0);
             const [pauseElapsed, setPauseElapsed] = useState(0);
@@ -650,6 +693,41 @@
                 });
             };
 
+            const watermarkImage = (base64, metadata, capturedAt) => {
+                return new Promise((resolve) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = img.width;
+                        canvas.height = img.height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0);
+
+                        const fontSize = Math.floor(canvas.width / 35);
+                        ctx.font = `bold ${fontSize}px monospace`;
+                        ctx.fillStyle = 'white';
+                        ctx.strokeStyle = 'black';
+                        ctx.lineWidth = Math.max(1, fontSize / 8);
+
+                        const dateStr = metadata.dateTime || capturedAt;
+                        // FALLBACK: Se a foto não tem GPS (Exif), usa o GPS do dispositivo (estado 'gps')
+                        const lat = metadata.lat || gps.lat;
+                        const lng = metadata.lng || gps.lng;
+                        const gpsStr = (lat && lng) ? `${parseFloat(lat).toFixed(6)}, ${parseFloat(lng).toFixed(6)}` : "GPS NÃO DISPONÍVEL";
+
+                        const text = `${dateStr} | GPS: ${gpsStr}`;
+                        const x = 20;
+                        const y = canvas.height - 25;
+
+                        ctx.strokeText(text, x, y);
+                        ctx.fillText(text, x, y);
+
+                        resolve(canvas.toDataURL('image/jpeg', 0.85));
+                    };
+                    img.src = base64;
+                });
+            };
+
             const processPhoto = async (file, photoType = 'GENERICO') => {
                 if (!file) return null;
                 const options = { maxSizeMB: 0.2, maxWidthOrHeight: 1280, useWebWorker: true }; // Otimizado para 3G/4G
@@ -668,7 +746,15 @@
                     const storagePath = `${shift.journeyDate || 'SEM_DATA'}/${shift.placa || 'SEM_PLACA'}/${photoType}/${fileName}`;
 
                     // 3. Converter para Base64 (apenas para preview local imediato)
-                    const base64 = await imageCompression.getDataUrlFromFile(compressedFile);
+                    let base64 = await imageCompression.getDataUrlFromFile(compressedFile);
+
+                    // 3.5 APLICAR MARCA D'ÁGUA (Data e GPS)
+                    try {
+                        const capturedAt = new Date().toLocaleString('pt-BR');
+                        base64 = await watermarkImage(base64, metadata, capturedAt);
+                    } catch (watermarkErr) {
+                        console.warn("Falha ao aplicar marca d'água:", watermarkErr);
+                    }
 
                     // 4. Adicionar à Fila de Upload (Background Sync)
                     // Importante: A fila agora salva o BLOB/File direto se possível, ou base64 para reconstruir
@@ -1065,6 +1151,88 @@
                             <p className="text-[8px] text-slate-400 mt-2 italic leading-tight">Nota: A lista de EPIs deve ser complementada conforme a análise de risco de cada atividade específica (ex: protetor facial, protetor auricular).</p>
                         </Card>
 
+                        {/* ═══════════════════════════════════════════════════════ */}
+                        {/* SEÇÃO 2 — DDS (DIÁLOGO DIÁRIO DE SEGURANÇA)           */}
+                        {/* Ref: DDS e Checklist RAD - serviço de poda e corte    */}
+                        {/* ═══════════════════════════════════════════════════════ */}
+                        <Card>
+                            <div className="flex justify-between items-center mb-4">
+                                <div>
+                                    <Label required>2. Diálogo Diário de Segurança (DDS)</Label>
+                                    <p className="text-[8px] text-slate-400 font-bold italic uppercase mt-1">Realização Obrigatória — Glosa 10: Não realização de DDS (1,00%)</p>
+                                </div>
+                                <button className="bg-amber-600 text-white text-[10px] px-3 py-1 font-black rounded uppercase shadow-sm" onClick={() => {
+                                    const allChecked = CHECKLIST_DDS.every(i => shift.checklist?.[i.id]);
+                                    const newChecklist = { ...shift.checklist };
+                                    CHECKLIST_DDS.forEach(i => { newChecklist[i.id] = !allChecked; });
+                                    setShift({ ...shift, checklist: newChecklist });
+                                }}>{CHECKLIST_DDS.every(i => shift.checklist?.[i.id]) ? 'Desmarcar Todos' : 'Marcar Todos'}</button>
+                            </div>
+                            <div className="space-y-3 mt-3 mb-6">
+                                {CHECKLIST_DDS.map(item => (
+                                    <div key={item.id} className="bg-amber-50 border border-amber-200 rounded-2xl p-4 relative shadow-sm">
+                                        <div className="flex justify-between items-start">
+                                            <div className="pr-4 flex-1">
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <i className="fas fa-hard-hat text-amber-500 text-sm"></i>
+                                                    <p className="font-black text-xs text-amber-900 uppercase leading-none">{item.tema}</p>
+                                                </div>
+                                                <p className="text-[8px] text-amber-600 leading-tight mt-1 ml-6">{item.obs}</p>
+                                                <p className="text-[7px] text-amber-400 font-bold uppercase mt-1 ml-6">{item.ref}</p>
+                                            </div>
+                                            <div
+                                                className={`w-10 h-10 rounded-full flex items-center justify-center cursor-pointer transition-colors border-2 shrink-0 ${shift.checklist?.[item.id] ? 'bg-amber-500 border-amber-600 text-white shadow-inner' : 'bg-white border-amber-300 text-amber-300 shadow-sm'}`}
+                                                onClick={() => setShift({ ...shift, checklist: { ...shift.checklist, [item.id]: !shift.checklist?.[item.id] } })}
+                                            >
+                                                <i className="fas fa-check text-lg"></i>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </Card>
+
+                        {/* ═══════════════════════════════════════════════════════ */}
+                        {/* SEÇÃO 3 — CHECKLIST DOCUMENTAL E OPERACIONAL          */}
+                        {/* Ref: DDS e Checklist RAD - serviço de poda e corte    */}
+                        {/* ═══════════════════════════════════════════════════════ */}
+                        <Card>
+                            <div className="flex justify-between items-center mb-4">
+                                <div>
+                                    <Label required>3. Checklist Documental e Operacional</Label>
+                                    <p className="text-[8px] text-slate-400 font-bold italic uppercase mt-1">Verificações obrigatórias antes do início das atividades</p>
+                                </div>
+                                <button className="bg-blue-600 text-white text-[10px] px-3 py-1 font-black rounded uppercase shadow-sm" onClick={() => {
+                                    const allChecked = CHECKLIST_DOCUMENTAL.every(i => shift.checklist?.[i.id]);
+                                    const newChecklist = { ...shift.checklist };
+                                    CHECKLIST_DOCUMENTAL.forEach(i => { newChecklist[i.id] = !allChecked; });
+                                    setShift({ ...shift, checklist: newChecklist });
+                                }}>{CHECKLIST_DOCUMENTAL.every(i => shift.checklist?.[i.id]) ? 'Desmarcar Todos' : 'Marcar Todos'}</button>
+                            </div>
+                            <div className="space-y-3 mt-3 mb-6">
+                                {CHECKLIST_DOCUMENTAL.map(item => (
+                                    <div key={item.id} className="bg-blue-50 border border-blue-200 rounded-2xl p-4 relative shadow-sm">
+                                        <div className="flex justify-between items-start">
+                                            <div className="pr-4 flex-1">
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <i className="fas fa-clipboard-check text-blue-500 text-sm"></i>
+                                                    <p className="font-black text-xs text-blue-900 uppercase leading-none">{item.item}</p>
+                                                </div>
+                                                <p className="text-[8px] text-blue-600 leading-tight mt-1 ml-6">{item.obs}</p>
+                                                <p className="text-[7px] text-blue-400 font-bold uppercase mt-1 ml-6">{item.ref}</p>
+                                            </div>
+                                            <div
+                                                className={`w-10 h-10 rounded-full flex items-center justify-center cursor-pointer transition-colors border-2 shrink-0 ${shift.checklist?.[item.id] ? 'bg-blue-500 border-blue-600 text-white shadow-inner' : 'bg-white border-blue-300 text-blue-300 shadow-sm'}`}
+                                                onClick={() => setShift({ ...shift, checklist: { ...shift.checklist, [item.id]: !shift.checklist?.[item.id] } })}
+                                            >
+                                                <i className="fas fa-check text-lg"></i>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </Card>
+
                         <Card>
                             <div className="bg-red-50 border-l-4 border-red-600 p-3 mb-4 rounded-r shadow-sm">
                                 <h4 className="text-[10px] font-black leading-tight text-red-800 mb-1 uppercase"><i className="fas fa-gavel mr-1"></i> Termo de Responsabilidade Legal e Civil</h4>
@@ -1082,6 +1250,15 @@
                             <Label required>Foto Autenticada da Equipe c/ EPIs Fixados no Local</Label>
                             <p className="text-[8px] font-bold text-slate-400 mb-2 uppercase italic leading-tight">Art. 6.11.5 Edital: Requer Foto Contendo TODA a equipe fardada, EPIs visíveis, obrigatoriamente Georreferenciada (Coordenadas inalteráveis de dispositivo). Ao capturar a foto, o responsável atesta a veracidade da equipe listada acima.</p>
                             <PhotoUpload preview={shift?.foto_unificada} label="CAPTURAR FOTOGRAFIA DO GRUPO" help="EPIs visíveis, Equipe Completa, GPS Ativo" fullWidth onCapture={async file => setShift({ ...shift, foto_unificada: await processPhoto(file, 'TURNO_INICIO') })} />
+                            {shift?.foto_unificada && (
+                                <div className="mt-4 p-4 bg-emerald-50 border-2 border-emerald-200 rounded-2xl text-center shadow-inner">
+                                    <p className="text-[10px] font-black text-emerald-800 uppercase mb-1"><i className="fas fa-certificate mr-1"></i> Autenticação por Imagem</p>
+                                    <div className="flex justify-center gap-4 text-[9px] font-bold text-emerald-600 uppercase">
+                                        <span><i className="fas fa-clock mr-1"></i> {shift.foto_unificada.metadata?.originalDate || new Date(shift.foto_unificada.capturedAt).toLocaleString('pt-BR')}</span>
+                                        <span><i className="fas fa-location-dot mr-1"></i> {shift.foto_unificada.metadata?.gps_lat || gps.lat ? `${parseFloat(shift.foto_unificada.metadata?.gps_lat || gps.lat).toFixed(6)}, ${parseFloat(shift.foto_unificada.metadata?.gps_lng || gps.lng).toFixed(6)}` : 'SINAL GPS N/A'}</span>
+                                    </div>
+                                </div>
+                            )}
                         </Card>
 
                         <button disabled={!shift?.placa || !shift?.foto_unificada || !termoAceito} onClick={async () => {
@@ -1449,7 +1626,7 @@
                                         lng: safeFloat(gps.lng),
                                         timestamp: new Date().toISOString()
                                     };
-                                    setLogs([log, ...logs]);
+                                    safeAddLog(log);
                                     // FIX: try/catch garante navegação mesmo se pushToSupabase lançar exceção
                                     try { await pushToSupabase(log); } catch (e) { console.error('pushToSupabase impedimento:', e); }
                                     setActiveAction(null);
@@ -1566,7 +1743,7 @@
                                         status: 'OK',
                                         timestamp: new Date().toISOString()
                                     };
-                                    setLogs([log, ...logs]);
+                                    safeAddLog(log);
                                     await pushToSupabase(log);
                                     setActiveAction(null);
                                     setView('dashboard');
@@ -1614,7 +1791,7 @@
                         const logCoords = activeAction.pauseCoords || safeCoords(gps.lat, gps.lng);
                         if (activeAction.type === 'pause') {
                             const log = { ...activeAction, endTime: Date.now(), durationSec: pDur, status: 'PAUSA', timestamp: new Date().toISOString(), coords: logCoords };
-                            setLogs([log, ...logs]);
+                            safeAddLog(log);
                             await pushToSupabase(log);
                             setActiveAction(null);
                             setView('dashboard');
@@ -1681,7 +1858,7 @@
                                         timestamp: new Date().toISOString(),
                                         type: 'disposal'
                                     };
-                                    setLogs([log, ...logs]);
+                                    safeAddLog(log);
                                     await pushToSupabase(log);
                                     setActiveDisposal(null);
                                     setDisposalElapsed(0);
