@@ -2158,32 +2158,41 @@
                                             return [c, ''];
                                         };
 
-                                        const csvHeader = ["ID_ITEM", "DATA", "OPERADOR", "PLACA", "TIPO", "PROTOCOLO", "ESPECIE", "CAP", "ALTURA", "SERVICOS", "STATUS", "INICIO", "FIM", "DUR_TOTAL", "T_MANEJO", "T_RELATORIO", "T_PAUSADO", "LATITUDE", "LONGITUDE", "OBS_IMP_PAUSA", "REF_FOTOS"].join(";") + "\n";
+                                        const csvHeader = ["#","ID_ARVORE_SISTEMA","DATA","OPERADOR","PLACA","TIPO","PROTOCOLO","NOME_VULGAR","NOME_CIENTIFICO","CAP_CM","ALTURA_M","TIPO_INTERVENCAO","STATUS","INICIO","FIM","DUR_TOTAL","T_MANEJO","T_RELATORIO","T_PAUSADO","LATITUDE","LONGITUDE","ENDEREÇO","MOTIVO_PAUSA","OBS_IMPEDIMENTO","OBS_GERAL"].join(";") + "\n";
                                         const csvRows = exportLogs.map((l, idx) => {
-                                            const detail = l.type === 'pause' ? `MOTIVO: ${l.pauseReason || 'N/A'}` : 
-                                                         (l.type === 'tree' && l.status === 'IMPEDIDO' ? `IMPEDIMENTO: ${l.problemDesc || 'N/A'}` : '');
                                             const c = parseCoords(l.coords);
+                                            // separa nome vulgar e científico pelo separador '/' se houver
+                                            const speciesParts = (l.species || 'N/A').split('/');
+                                            const nomeVulgar     = speciesParts[0]?.trim() || l.species || 'N/A';
+                                            const nomeCientifico = speciesParts[1]?.trim() || '';
+                                            const motivoPausa    = l.type === 'pause' ? (l.tempPauseReason === 'Outros' ? (l.customPauseReason || l.pauseReason || 'N/A') : (l.pauseReason || l.tempPauseReason || 'N/A')) : '';
+                                            const obsImpedimento = (l.type === 'tree' && l.status === 'IMPEDIDO') ? (l.problemDesc || l.desc || 'N/A') : '';
+                                            const tipoIntervencao = l.type === 'tree' ? ((l.pruningTypes || []).join(" | ") || (l.status === 'IMPEDIDO' ? 'IMPEDIMENTO' : 'ROTINA')) : (l.type === 'pause' ? `PAUSA: ${motivoPausa}` : l.type?.toUpperCase() || 'N/A');
                                             return [
-                                                idx + 1, 
-                                                exportShift.journeyDate, 
-                                                exportShift.operador, 
-                                                exportShift.placa, 
-                                                l.type?.toUpperCase(), 
-                                                l.osId || 'ROTINA', 
-                                                l.species || 'N/A', 
-                                                l.cap || '', 
-                                                l.height || '', 
-                                                (l.pruningTypes || []).join(", "), 
-                                                l.status, 
-                                                new Date(l.startTime).toLocaleTimeString(), 
-                                                l.endTime ? new Date(l.endTime).toLocaleTimeString() : '', 
+                                                idx + 1,
+                                                l.treeId || l.id || (l.type === 'tree' ? `ARV_${idx}` : `LOG_${idx}`),
+                                                exportShift.journeyDate,
+                                                exportShift.operador,
+                                                exportShift.placa,
+                                                l.type?.toUpperCase(),
+                                                l.osId || 'ROTINA',
+                                                nomeVulgar,
+                                                nomeCientifico,
+                                                l.cap || '',
+                                                l.height || '',
+                                                tipoIntervencao,
+                                                l.status,
+                                                new Date(l.startTime).toLocaleTimeString(),
+                                                l.endTime ? new Date(l.endTime).toLocaleTimeString() : '',
                                                 formatHMS(l.durationSec),
                                                 formatHMS(l.effectiveDurationSec || l.executionDurationSec),
                                                 formatHMS(l.formDurationSec),
                                                 formatHMS(l.totalPausedSeconds),
                                                 c[0], c[1],
-                                                detail,
-                                                l.type === 'tree' ? `ARV_${idx}` : `LOG_${idx}`
+                                                l.endereco || l.location_name || '',
+                                                motivoPausa,
+                                                obsImpedimento,
+                                                l.problemReport || l.desc || ''
                                             ].join(";");
                                         }).join("\n");
                                         zip.file("PLANILHA_ATIVIDADES.csv", "\ufeff" + csvHeader + csvRows);
@@ -2217,23 +2226,74 @@
                                         try {
                                             if (typeof XLSX !== 'undefined') {
                                                 const wb = XLSX.utils.book_new();
-                                                const wsAtividades = XLSX.utils.aoa_to_sheet([
-                                                    ["ID_ITEM", "DATA", "OPERADOR", "PLACA", "TIPO", "PROTOCOLO", "ESPECIE", "CAP", "ALTURA", "SERVICOS", "STATUS", "INICIO", "FIM", "DUR_TOTAL", "T_MANEJO", "T_RELATORIO", "T_PAUSADO", "LATITUDE", "LONGITUDE", "OBS_IMP_PAUSA", "REF_FOTOS"],
-                                                    ...exportLogs.map((l, idx) => {
-                                                        const detail = l.type === 'pause' ? `MOTIVO: ${l.pauseReason || 'N/A'}` : (l.type === 'tree' && l.status === 'IMPEDIDO' ? `IMPEDIMENTO: ${l.problemDesc || 'N/A'}` : '');
-                                                        const c = parseCoords(l.coords);
-                                                        return [
-                                                            idx + 1, exportShift.journeyDate, exportShift.operador, exportShift.placa, l.type?.toUpperCase(), l.osId || 'ROTINA', l.species || 'N/A', l.cap || '', l.height || '', (l.pruningTypes || []).join(", "), l.status, new Date(l.startTime).toLocaleTimeString(), l.endTime ? new Date(l.endTime).toLocaleTimeString() : '', 
-                                                            formatHMS(l.durationSec), formatHMS(l.effectiveDurationSec || l.executionDurationSec), formatHMS(l.formDurationSec), formatHMS(l.totalPausedSeconds), c[0], c[1], 
-                                                            detail, 
-                                                            l.type === 'tree' ? `ARV_${idx}` : `LOG_${idx}`
-                                                        ];
-                                                    })
-                                                ]);
+
+                                                // ── ABA 1: ATIVIDADES DE CAMPO ──────────────────────────────
+                                                const colsAtiv = ["#","ID ÁRVORE (SISTEMA)","DATA","OPERADOR","PLACA","TIPO","PROTOCOLO / OS","NOME VULGAR","NOME CIENTÍFICO","CAP (cm)","ALTURA (m)","TIPO DE INTERVENÇÃO","STATUS","INÍCIO","FIM","HM TOTAL","HM MANEJO","HM SISTEMA","HM PAUSA","LATITUDE","LONGITUDE","ENDEREÇO","MOTIVO DA PAUSA","DESCRIÇÃO DO IMPEDIMENTO","OBSERVAÇÕES GERAIS"];
+                                                const rowsAtiv = exportLogs.map((l, idx) => {
+                                                    const c = parseCoords(l.coords);
+                                                    const speciesParts = (l.species || 'N/A').split('/');
+                                                    const nomeVulgar     = speciesParts[0]?.trim() || l.species || 'N/A';
+                                                    const nomeCientifico = speciesParts[1]?.trim() || '';
+                                                    const motivoPausa    = l.type === 'pause' ? (l.tempPauseReason === 'Outros' ? (l.customPauseReason || l.pauseReason || 'N/A') : (l.pauseReason || l.tempPauseReason || 'N/A')) : '';
+                                                    const obsImpedimento = (l.type === 'tree' && l.status === 'IMPEDIDO') ? (l.problemDesc || l.desc || '') : '';
+                                                    const tipoIntervencao = l.type === 'tree' ? ((l.pruningTypes || []).join(" | ") || (l.status === 'IMPEDIDO' ? 'IMPEDIMENTO' : 'ROTINA')) : (l.type === 'pause' ? `PAUSA: ${motivoPausa}` : l.type?.toUpperCase() || '');
+                                                    return [
+                                                        idx + 1,
+                                                        l.treeId || l.id || (l.type === 'tree' ? `ARV_${idx}` : `LOG_${idx}`),
+                                                        exportShift.journeyDate,
+                                                        exportShift.operador,
+                                                        exportShift.placa,
+                                                        l.type?.toUpperCase(),
+                                                        l.osId || 'ROTINA',
+                                                        nomeVulgar,
+                                                        nomeCientifico,
+                                                        l.cap ? parseFloat(l.cap) : '',
+                                                        l.height ? parseFloat(l.height) : '',
+                                                        tipoIntervencao,
+                                                        l.status,
+                                                        l.startTime ? new Date(l.startTime).toLocaleTimeString() : '',
+                                                        l.endTime   ? new Date(l.endTime).toLocaleTimeString()   : '',
+                                                        formatHMS(l.durationSec),
+                                                        formatHMS(l.effectiveDurationSec || l.executionDurationSec),
+                                                        formatHMS(l.formDurationSec),
+                                                        formatHMS(l.totalPausedSeconds),
+                                                        c[0], c[1],
+                                                        l.endereco || l.location_name || '',
+                                                        motivoPausa,
+                                                        obsImpedimento,
+                                                        l.problemReport || l.desc || ''
+                                                    ];
+                                                });
+                                                const wsAtividades = XLSX.utils.aoa_to_sheet([colsAtiv, ...rowsAtiv]);
+                                                // Largura das colunas
+                                                wsAtividades['!cols'] = [6,22,10,18,10,8,14,22,22,8,8,30,12,8,8,10,10,10,10,12,12,30,25,30,30].map(w=>({wch:w}));
                                                 XLSX.utils.book_append_sheet(wb, wsAtividades, "Atividades Campo");
 
+                                                // ── ABA 2: AUDITORIA DO TURNO ───────────────────────────────
                                                 const wsTurno = XLSX.utils.aoa_to_sheet(stringsTurno);
+                                                wsTurno['!cols'] = [{wch:35},{wch:40}];
                                                 XLSX.utils.book_append_sheet(wb, wsTurno, "Auditoria Turno");
+
+                                                // ── ABA 3: RESUMO POR ESPÉCIE ───────────────────────────────
+                                                const speciesCount = {};
+                                                exportLogs.filter(l => l.type === 'tree' && l.status === 'OK').forEach(l => {
+                                                    const sp = (l.species || 'N/A').split('/')[0].trim().toUpperCase();
+                                                    if (!speciesCount[sp]) speciesCount[sp] = { podas:0, cortes:0, total:0 };
+                                                    const isCorte = (l.pruningTypes || []).some(p => p.toLowerCase().includes('supressão') || p.toLowerCase().includes('corte'));
+                                                    if (isCorte) speciesCount[sp].cortes++; else speciesCount[sp].podas++;
+                                                    speciesCount[sp].total++;
+                                                });
+                                                const resumoRows = Object.entries(speciesCount)
+                                                    .sort((a,b) => b[1].total - a[1].total)
+                                                    .map(([sp, v]) => [sp, v.total, v.podas, v.cortes]);
+                                                const wsResumo = XLSX.utils.aoa_to_sheet([
+                                                    ["ESPÉCIE (NOME VULGAR)","TOTAL","PODAS","CORTES / SUPRESSÃO"],
+                                                    ...resumoRows,
+                                                    [],
+                                                    ["TOTAL GERAL", resumoRows.reduce((s,r)=>s+r[1],0), resumoRows.reduce((s,r)=>s+r[2],0), resumoRows.reduce((s,r)=>s+r[3],0)]
+                                                ]);
+                                                wsResumo['!cols'] = [{wch:30},{wch:8},{wch:8},{wch:20}];
+                                                XLSX.utils.book_append_sheet(wb, wsResumo, "Resumo por Espécie");
 
                                                 const xlsxBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
                                                 zip.file("RELATORIO_RAD_CONSOLIDADO.xlsx", xlsxBuffer);
