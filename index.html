@@ -167,6 +167,13 @@
             { id: "CORRECAO_ESTRUTURAL", label: "Correção Estrutural" }
         ];
 
+        const parseCommaFloat = (val) => {
+            if (!val) return null;
+            const str = String(val).replace(',', '.');
+            const f = parseFloat(str);
+            return isNaN(f) ? null : f;
+        };
+
         const FONTES_DEMANDA = [
             { id: "manutencao", label: "Manutenção de Rotina" },
             { id: "os", label: "Poda com Protocolo (Cidadão)" },
@@ -344,7 +351,8 @@
                 foto_unificada: null, journeyStartTime: null, journeyEndTime: null, journeyDate: null, 
                 checklist: {}, 
                 referencia: { ata: '486/2025', pregao: '71/2025', empresa: '2C SOLUÇÕES ELETROMECANICAS LTDA' },
-                horario_dds: '', horimetro_inicial: '', horario_liberacao: '', bairro_local: '', responsavel_empresa: ''
+                horario_dds: '', horimetro_inicial: '', horario_liberacao: '', bairro_local: '', responsavel_empresa: '',
+                gps_abertura: null
             });
             const [termoAceito, setTermoAceito] = useState(false);
             const [activeAction, setActiveAction] = useState(null);
@@ -426,6 +434,10 @@
                         const d = await idbKeyval.get('mcr_disposal_v21_oficial');
                         const l = await idbKeyval.get('mcr_logs_v21_oficial') || [];
                         if (s) setShift(s);
+                        else if (session?.user?.email) {
+                            // Inicializa o operador com o e-mail, mas permite trocar
+                            setShift(prev => ({ ...prev, operador: session.user.email }));
+                        }
 
                         if (a) {
                             setActiveAction(a);
@@ -720,6 +732,20 @@
                                     </div>
 
                                     <div className="grid grid-cols-1 gap-4">
+                                        <div className="relative group">
+                                            <Label required>Operador Principal (Identificação)</Label>
+                                            <div className="relative">
+                                                <i className="fas fa-user-circle absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-audit-500 transition-colors"></i>
+                                                <input 
+                                                    type="text" 
+                                                    placeholder="NOME DO OPERADOR" 
+                                                    className="w-full pl-11 pr-4 py-4 bg-slate-50 border-2 border-transparent rounded-2xl font-bold text-sm uppercase focus:bg-white focus:border-audit-500 transition-all outline-none" 
+                                                    value={shift.operador} 
+                                                    onChange={e => setShift({ ...shift, operador: e.target.value.toUpperCase() })} 
+                                                />
+                                            </div>
+                                        </div>
+
                                         <div className="relative group">
                                             <Label required>Responsável Conferência</Label>
                                             <div className="relative">
@@ -1070,14 +1096,14 @@
                                     disabled={!shift?.responsavel_empresa || !shift?.bairro_local || !shift?.placa || !shift?.foto_unificada || !termoAceito || !shift.checklist?.['eq_4'] || gps.status !== 'granted'} 
                                     onClick={async () => {
                                         if (!confirm("CONFIRMAR ABERTURA DE TURNO E ENVIO DE TERMO LEGAL?")) return;
-                                        const operadorPrincipal = session.user.email;
                                         const now = new Date();
+                                        const openCoords = gps.lat && gps.lng ? `${gps.lat},${gps.lng}` : null;
                                         const newShiftState = { 
                                             ...shift, 
-                                            operador: operadorPrincipal, 
                                             active: true, 
                                             journeyStartTime: Date.now(), 
-                                            journeyDate: now.toLocaleDateString() 
+                                            journeyDate: now.toLocaleDateString(),
+                                            gps_abertura: openCoords
                                         };
                                         setShift(newShiftState);
                                         setView('dashboard');
@@ -1358,15 +1384,48 @@
                                         </div>
                                         <input 
                                             className="w-full bg-transparent border-none p-0 focus:ring-0 font-black uppercase text-lg placeholder:text-slate-200" 
-                                            placeholder="EX: OS-00000" 
+                                            placeholder="EX: 0000/2026" 
                                             value={activeAction.osId || ''} 
-                                            onChange={e => setActiveAction({ ...activeAction, osId: e.target.value.toUpperCase() })} 
+                                            onChange={e => {
+                                                let v = e.target.value.replace(/[^0-9/]/g, '');
+                                                if (v.length === 4 && !v.includes('/')) v += '/';
+                                                setActiveAction({ ...activeAction, osId: v });
+                                            }} 
                                         />
                                     </div>
                                 </div>
 
                                 <div className="space-y-4">
                                     <div>
+                                        <div className="flex items-center gap-2 mb-3">
+                                            <i className="fas fa-location-dot text-[10px] text-emerald-500"></i>
+                                            <Label required className="!mb-0 uppercase text-[9px] tracking-widest text-slate-400">Local da Árvore (Endereço)</Label>
+                                        </div>
+                                        <div className="bg-slate-50 p-4 rounded-2xl border-2 border-slate-100 mb-4 flex items-center gap-3">
+                                            <input 
+                                                className="w-full bg-transparent border-none p-0 focus:ring-0 font-black uppercase text-xs placeholder:text-slate-200" 
+                                                placeholder="BUSCANDO LOCALIZAÇÃO..." 
+                                                value={activeAction.endereco || ''} 
+                                                onChange={e => setActiveAction({ ...activeAction, endereco: e.target.value.toUpperCase() })} 
+                                            />
+                                            <button 
+                                                onClick={async () => {
+                                                    if (!gps.lat || !gps.lng) { alert("GPS não capturado!"); return; }
+                                                    try {
+                                                        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${gps.lat}&lon=${gps.lng}&zoom=18&addressdetails=1`);
+                                                        const data = await res.json();
+                                                        const addr = data.display_name.split(',').slice(0, 3).join(',').toUpperCase();
+                                                        setActiveAction({ ...activeAction, endereco: addr });
+                                                    } catch (e) {
+                                                        setActiveAction({ ...activeAction, endereco: shift.bairro_local });
+                                                        alert("Offline: Usando Local do Turno.");
+                                                    }
+                                                }}
+                                                className="w-10 h-10 bg-slate-200 rounded-xl flex items-center justify-center text-slate-600 active:scale-95">
+                                                <i className="fas fa-arrows-rotate"></i>
+                                            </button>
+                                        </div>
+
                                         <div className="flex items-center gap-2 mb-3">
                                             <i className="fas fa-bolt-lightning text-[10px] text-amber-500"></i>
                                             <Label required className="!mb-0">Intervenção na Rede COPEL?</Label>
@@ -1477,26 +1536,29 @@
                                     </div>
 
                                     <div className="grid grid-cols-2 gap-4">
-                                        <div className="bg-slate-50 p-6 rounded-[2.2rem] border-2 border-slate-100">
+                                        <div className={`bg-slate-50 p-6 rounded-[2.2rem] border-2 transition-all ${parseCommaFloat(activeAction.cap) > 500 ? 'border-red-400 bg-red-50' : 'border-slate-100'}`}>
                                             <Label required className="uppercase text-[9px] tracking-widest text-slate-400">CAP (cm)</Label>
                                             <div className="flex items-center gap-2">
                                                 <input 
-                                                    type="number" 
+                                                    type="text" 
+                                                    inputMode="decimal"
                                                     className="w-full bg-transparent border-none p-0 focus:ring-0 font-black text-2xl" 
-                                                    placeholder="0" 
+                                                    placeholder="0,0" 
                                                     value={activeAction.cap || ''} 
                                                     onChange={e => setActiveAction({ ...activeAction, cap: e.target.value })} 
                                                 />
                                                 <span className="text-slate-300 font-black">cm</span>
                                             </div>
+                                            {parseCommaFloat(activeAction.cap) > 500 && <p className="text-[7px] text-red-600 font-black uppercase mt-1">⚠️ Valor Muito Alto!</p>}
                                         </div>
                                         <div className="bg-slate-50 p-6 rounded-[2.2rem] border-2 border-slate-100">
                                             <Label required className="uppercase text-[9px] tracking-widest text-slate-400">Altura (m)</Label>
                                             <div className="flex items-center gap-2">
                                                 <input 
-                                                    type="number" 
+                                                    type="text" 
+                                                    inputMode="decimal"
                                                     className="w-full bg-transparent border-none p-0 focus:ring-0 font-black text-2xl" 
-                                                    placeholder="0" 
+                                                    placeholder="0,0" 
                                                     value={activeAction.height || ''} 
                                                     onChange={e => setActiveAction({ ...activeAction, height: e.target.value })} 
                                                 />
@@ -1599,7 +1661,8 @@
                                     <button 
                                         disabled={!activeAction.species || !activeAction.problemReport || !activeAction.photoProblem} 
                                         onClick={async () => {
-                                            const treeId = generateTreeId(activeAction.species, activeAction.cap || 0, gps.lat, gps.lng);
+                                            const cleanCap = parseCommaFloat(activeAction.cap) || 0;
+                                            const treeId = generateTreeId(activeAction.species, cleanCap, gps.lat, gps.lng);
                                             const coordsStr = safeCoords(gps.lat, gps.lng);
                                             const now = Date.now();
                                             const log = { 
@@ -1633,24 +1696,33 @@
                                             !activeAction.species || 
                                             !activeAction.cap || 
                                             !activeAction.height || 
-                                            (parseFloat(activeAction.cap) < 1 || parseFloat(activeAction.cap) > 2000) || 
-                                            (parseFloat(activeAction.height) < 0.5 || parseFloat(activeAction.height) > 60) || 
-                                            (!isCorteFixo && !activeAction.pruningTypes?.length) || 
-                                            (isOsRequired && !activeAction.osId) || 
+                                            (parseCommaFloat(activeAction.cap) < 1 || parseCommaFloat(activeAction.cap) > 500) || 
+                                            (parseCommaFloat(activeAction.height) < 0.5 || parseCommaFloat(activeAction.height) > 60) || 
+                                            (!activeAction.pruningTypes?.length && !isCorteFixo) || 
+                                            (isOsRequired && (!activeAction.osId || !activeAction.osId.match(/^[0-9]{1,5}\/[0-9]{4}$/))) || 
                                             (activeAction.photosBefore?.filter(p => p).length < 3)
                                         } 
                                         onClick={() => {
+                                            if (parseCommaFloat(activeAction.cap) > 500) {
+                                                alert("O CAP informado (" + activeAction.cap + "cm) é superior ao limite de segurança de 5 metros.");
+                                                return;
+                                            }
                                             try {
                                                 const now = Date.now();
-                                                const treeId = generateTreeId(activeAction.species, activeAction.cap, gps.lat, gps.lng);
+                                                const cleanCap = parseCommaFloat(activeAction.cap);
+                                                const cleanHeight = parseCommaFloat(activeAction.height);
+                                                const treeId = generateTreeId(activeAction.species, cleanCap, gps.lat, gps.lng);
                                                 const coordsStr = safeCoords(gps.lat, gps.lng);
                                                 const duplicate = logs.find(l => l.treeId === treeId && l.type === 'tree');
                                                 
                                                 const proceedWithNew = () => { 
                                                     setActiveAction({ 
                                                         ...activeAction, 
+                                                        cap: cleanCap,
+                                                        height: cleanHeight,
                                                         treeId, 
                                                         type: 'tree', 
+                                                        endereco: activeAction.endereco || shift.bairro_local,
                                                         executionStartTime: now, 
                                                         formDurationSec: Math.floor((now - activeAction.startTime) / 1000), 
                                                         desc: `${activeAction.species} [${activeAction.osId || (activeAction.pruningTypes?.[0] || 'MANEJO')}]`, 
@@ -2126,24 +2198,10 @@
                                         const zip = new JSZip();
                                         if (!exportShift.dds_image_path && exportShift.foto_unificada?.storagePath) exportShift.dds_image_path = exportShift.foto_unificada.storagePath;
                                         
-                                        // Gerar Relatório e Selagem Digital Anti-Fraude (HMAC-SHA256)
+                                        // 1. Gerar os dados do Relatório (JSON)
                                         const reportPayload = JSON.stringify({ shift: exportShift, logs: exportLogs });
-                                        zip.file("RELATORIO.json", reportPayload);
                                         
-                                        const digitalSeal = CryptoJS.HmacSHA256(reportPayload, "MCR_RAD_THYEGO_INTEGRITY_2025").toString();
-                                        zip.file("CERTIFICADO_INTEGRIDADE.txt", 
-                                            `SISTEMA RAD PODA v21 - CERTIFICADO DE ORIGEM\n` +
-                                            `-------------------------------------------\n` +
-                                            `AUTOR DO SISTEMA: Eng. Florestal Thyêgo Nunes Alves Barreto\n` +
-                                            `CREA-PR PE-048841/D\n` +
-                                            `ID_INTEGRIDADE: ${digitalSeal}\n` +
-                                            `DATA_GERACAO: ${new Date().toLocaleString()}\n\n` +
-                                            `AVISO DE AUDITORIA:\n` +
-                                            `Este arquivo ZIP foi selado digitalmente no momento da exportação.\n` +
-                                            `Qualquer tentativa de alterar os arquivos JSON ou Excel dentro deste pacote invalidará a assinatura acima.\n` +
-                                            `Este certificado permite à Prefeitura verificar se houve fraude por parte da empresa contratada.`);
-                                        // ------------------------------------------------
-
+                                        // 2. Gerar a Planilha de Atividades (CSV) - Movemos para cá para selar junto
                                         const formatHMS = (seconds) => {
                                             if (!seconds) return '00:00:00';
                                             const h = Math.floor(seconds / 3600).toString().padStart(2, '0');
@@ -2157,11 +2215,21 @@
                                             if (p.length === 2) return [p[0].trim(), p[1].trim()];
                                             return [c, ''];
                                         };
+                                        const getDemandLabel = (log) => {
+                                            if (log.type === 'pause') return 'PAUSA OPERACIONAL';
+                                            if (log.type === 'disposal') return 'DESTINAÇÃO DE RESÍDUOS';
+                                            const source = log.demandSource;
+                                            if (source === 'manutencao') return 'PODA DE ROTINA';
+                                            if (source === 'os') return 'PODA COM PROTOCOLO';
+                                            if (source === 'emergencia') return 'SINISTRO / EMERGÊNCIA';
+                                            if (source === 'corte_protocolo') return 'CORTE COM PROTOCOLO';
+                                            return 'MANEJO DE ÁRVORE';
+                                        };
 
                                         const csvHeader = ["#","ID_ARVORE_SISTEMA","DATA","OPERADOR","PLACA","TIPO","PROTOCOLO","NOME_VULGAR","NOME_CIENTIFICO","CAP_CM","ALTURA_M","TIPO_INTERVENCAO","STATUS","INICIO","FIM","DUR_TOTAL","T_MANEJO","T_RELATORIO","T_PAUSADO","LATITUDE","LONGITUDE","ENDEREÇO","MOTIVO_PAUSA","OBS_IMPEDIMENTO","OBS_GERAL"].join(";") + "\n";
                                         const csvRows = exportLogs.map((l, idx) => {
                                             const c = parseCoords(l.coords);
-                                            // separa nome vulgar e científico pelo separador '/' se houver
+                                            const enderecoLog = l.endereco || l.location_name || exportShift.bairro_local || 'N/A';
                                             const speciesParts = (l.species || 'N/A').split('/');
                                             const nomeVulgar     = speciesParts[0]?.trim() || l.species || 'N/A';
                                             const nomeCientifico = speciesParts[1]?.trim() || '';
@@ -2174,7 +2242,7 @@
                                                 exportShift.journeyDate,
                                                 exportShift.operador,
                                                 exportShift.placa,
-                                                l.type?.toUpperCase(),
+                                                getDemandLabel(l),
                                                 l.osId || 'ROTINA',
                                                 nomeVulgar,
                                                 nomeCientifico,
@@ -2189,13 +2257,30 @@
                                                 formatHMS(l.formDurationSec),
                                                 formatHMS(l.totalPausedSeconds),
                                                 c[0], c[1],
-                                                l.endereco || l.location_name || '',
+                                                enderecoLog,
                                                 motivoPausa,
                                                 obsImpedimento,
                                                 l.problemReport || l.desc || ''
                                             ].join(";");
                                         }).join("\n");
-                                        zip.file("PLANILHA_ATIVIDADES.csv", "\ufeff" + csvHeader + csvRows);
+                                        const fullCsvContent = csvHeader + csvRows;
+
+                                        // 3. Selagem Digital HMAC-SHA256 (JSON + CSV)
+                                        const digitalSeal = CryptoJS.HmacSHA256(reportPayload + "[SEP]" + fullCsvContent, "MCR_RAD_THYEGO_INTEGRITY_2025").toString();
+                                        
+                                        zip.file("RELATORIO.json", reportPayload);
+                                        zip.file("PLANILHA_ATIVIDADES.csv", "\ufeff" + fullCsvContent);
+                                        zip.file("CERTIFICADO_INTEGRIDADE.txt", 
+                                            `SISTEMA RAD PODA v21 - CERTIFICADO DE ORIGEM\n` +
+                                            `-------------------------------------------\n` +
+                                            `AUTOR DO SISTEMA: Eng. Florestal Thyêgo Nunes Alves Barreto\n` +
+                                            `CREA-PR PE-048841/D\n` +
+                                            `ID_INTEGRIDADE: ${digitalSeal}\n` +
+                                            `DATA_GERACAO: ${new Date().toLocaleString()}\n\n` +
+                                            `AVISO DE AUDITORIA:\n` +
+                                            `Este arquivo ZIP foi selado digitalmente no momento da exportação.\n` +
+                                            `Qualquer tentativa de alterar os arquivos JSON ou EXCEL (CSV) dentro deste pacote invalidará esta assinatura.\n` +
+                                            `Este certificado permite à Prefeitura verificar se houve fraude por parte da empresa contratada.`);
 
                                         // Novo arquivo de detalhes do turno EXAUSTIVO para RAM
                                         const stringsTurno = [
@@ -2207,7 +2292,7 @@
                                             ["LOCAL DA OPERAÇÃO", exportShift.bairro_local || 'N/A'],
                                             ["MUNCK (PLACA)", exportShift.placa],
                                             ["APOIO (PLACA)", exportShift.placaAux || 'N/A'],
-                                            ["GPS ABERTURA", exportShift.foto_unificada?.coords || 'N/A'],
+                                            ["GPS ABERTURA", exportShift.gps_abertura || 'N/A'],
                                             ["--- EQUIPE OPERACIONAL (RH) ---", ""],
                                             ...(CHECKLIST_RH.map(r => [r.cargo, exportShift.checklist?.[r.id] || 'NÃO INFORMADO'])),
                                             ["--- DIÁLOGO DIÁRIO DE SEGURANÇA (DDS) ---", ""],
@@ -2237,13 +2322,14 @@
                                                     const motivoPausa    = l.type === 'pause' ? (l.tempPauseReason === 'Outros' ? (l.customPauseReason || l.pauseReason || 'N/A') : (l.pauseReason || l.tempPauseReason || 'N/A')) : '';
                                                     const obsImpedimento = (l.type === 'tree' && l.status === 'IMPEDIDO') ? (l.problemDesc || l.desc || '') : '';
                                                     const tipoIntervencao = l.type === 'tree' ? ((l.pruningTypes || []).join(" | ") || (l.status === 'IMPEDIDO' ? 'IMPEDIMENTO' : 'ROTINA')) : (l.type === 'pause' ? `PAUSA: ${motivoPausa}` : l.type?.toUpperCase() || '');
+                                                    const enderecoLog = l.endereco || l.location_name || exportShift.bairro_local || '';
                                                     return [
                                                         idx + 1,
                                                         l.treeId || l.id || (l.type === 'tree' ? `ARV_${idx}` : `LOG_${idx}`),
                                                         exportShift.journeyDate,
                                                         exportShift.operador,
                                                         exportShift.placa,
-                                                        l.type?.toUpperCase(),
+                                                        getDemandLabel(l),
                                                         l.osId || 'ROTINA',
                                                         nomeVulgar,
                                                         nomeCientifico,
@@ -2258,7 +2344,7 @@
                                                         formatHMS(l.formDurationSec),
                                                         formatHMS(l.totalPausedSeconds),
                                                         c[0], c[1],
-                                                        l.endereco || l.location_name || '',
+                                                        enderecoLog,
                                                         motivoPausa,
                                                         obsImpedimento,
                                                         l.problemReport || l.desc || ''
