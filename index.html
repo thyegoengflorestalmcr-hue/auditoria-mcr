@@ -130,17 +130,45 @@
         const EQUIPES_CADASTRADAS = [
             {
                 id: 'equipe1',
-                label: 'Equipe 1 – Munck AKK2G75',
+                label: 'Equipe 1 – Munck MDE7E84',
                 operador: 'JHONATAN ANDRÉ ALVES DA CRUZ',
-                placa: 'AKK2G75',
-                placaAux: ''
+                placa: 'MDE7E84',
+                placaAux: '',
+                checklistRh: {
+                    rh_1: 'IVAN MARTINS',
+                    rh_2: 'JHONATAN ANDRÉ ALVES DA CRUZ',
+                    rh_3: 'ANDERSON SANTOS DA CRUZ',
+                    rh_4: 'CARLOS EDUARDO ALVES SEIDEL',
+                    rh_5: 'LUIZ ROBERTO PRASS'
+                }
             },
             {
                 id: 'equipe2',
-                label: 'Equipe 2 – Preencher Manualmente',
+                label: 'Equipe 2 – Munck AKK2G75',
+                operador: 'FERNANDO H. CORREIA DE LIMA',
+                placa: 'AKK2G75',
+                placaAux: '',
+                checklistRh: {
+                    rh_1: 'IVAN MARTINS',
+                    rh_2: 'WILLIAN KAPPES',
+                    rh_3: 'FERNANDO H. CORREIA DE LIMA',
+                    rh_4: 'JEFERSON SPECH / RAFAEL FREITAS MORAES',
+                    rh_5: 'LUIZ ROBERTO PRASS'
+                }
+            },
+            {
+                id: 'equipe_manual',
+                label: 'Preencher Manualmente',
                 operador: '',
                 placa: '',
-                placaAux: ''
+                placaAux: '',
+                checklistRh: {
+                    rh_1: '',
+                    rh_2: '',
+                    rh_3: '',
+                    rh_4: '',
+                    rh_5: ''
+                }
             }
         ];
 
@@ -330,7 +358,7 @@
                 <input
                     type="file"
                     className="hidden"
-                    accept="image/jpeg,image/png,image/*"
+                    accept="image/*"
                     onChange={async e => {
                         if (e.target.files && e.target.files[0]) {
                             await onCapture(e.target.files[0]);
@@ -355,6 +383,7 @@
                 horario_dds: '', horimetro_inicial: '', horario_liberacao: '', bairro_local: '', responsavel_empresa: '',
                 gps_abertura: null
             });
+            const [pendingTrees, setPendingTrees] = useState([]);
             const [equipeId, setEquipeId] = useState('');
             const [termoAceito, setTermoAceito] = useState(false);
             const [activeAction, setActiveAction] = useState(null);
@@ -373,6 +402,7 @@
             const [downloadedBlob, setDownloadedBlob] = useState(null);
             const [hasLoaded, setHasLoaded] = useState(false);
             const [confirmModal, setConfirmModal] = useState(null);
+            const [zoomPhoto, setZoomPhoto] = useState(null);
 
             const showConfirm = (title, body, onConfirm, onCancel, confirmLabel = 'Confirmar', cancelLabel = 'Cancelar') => {
                 setConfirmModal({ title, body, onConfirm, onCancel, confirmLabel, cancelLabel });
@@ -399,9 +429,11 @@
                     try {
                         const s = await idbKeyval.get('mcr_shift_v21_oficial');
                         const a = await idbKeyval.get('mcr_active_v21_oficial');
+                        const pending = await idbKeyval.get('mcr_pending_trees_v21_oficial') || [];
                         const d = await idbKeyval.get('mcr_disposal_v21_oficial');
                         const l = await idbKeyval.get('mcr_logs_v21_oficial') || [];
                         if (s) setShift(s);
+                        if (pending) setPendingTrees(pending);
 
                         if (a) {
                             setActiveAction(a);
@@ -436,6 +468,67 @@
                 return () => navigator.geolocation.clearWatch(watchId);
             }, []);
 
+            // Busca e preenchimento de endereço (Endereço se online, Coordenadas se offline/sem rede)
+            useEffect(() => {
+                if (view !== 'tree_form' || !activeAction) return;
+                
+                let isMounted = true;
+                
+                const getAddressOrCoords = async () => {
+                    if (gps.lat && gps.lng) {
+                        try {
+                            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${gps.lat}&lon=${gps.lng}&zoom=18&addressdetails=1`);
+                            if (!res.ok) throw new Error("Sem rede");
+                            const data = await res.json();
+                            if (data && data.display_name && isMounted) {
+                                const addr = data.display_name.split(',').slice(0, 3).join(',').toUpperCase();
+                                setActiveAction(prev => {
+                                    if (prev && (!prev.endereco || prev.endereco.includes('BUSCANDO') || !prev.endereco.trim() || prev.endereco.match(/^-?[0-9.]+,\s*-?[0-9.]+$/))) {
+                                        return { ...prev, endereco: addr };
+                                    }
+                                    return prev;
+                                });
+                            }
+                        } catch (e) {
+                            if (isMounted) {
+                                setActiveAction(prev => {
+                                    if (prev && !prev.endereco) {
+                                        return { ...prev, endereco: `${gps.lat}, ${gps.lng}` };
+                                    }
+                                    return prev;
+                                });
+                            }
+                        }
+                    } else if (gps.status === 'denied' || gps.status === 'error') {
+                        const fallbackAddr = shift.gps_abertura || '-24.4124, -53.5125';
+                        if (activeAction.endereco !== fallbackAddr && isMounted) {
+                            setActiveAction(prev => {
+                                if (prev && !prev.endereco) {
+                                    return { ...prev, endereco: fallbackAddr };
+                                }
+                                return prev;
+                            });
+                        }
+                    } else {
+                        const timer = setTimeout(() => {
+                            if (!gps.lat && !gps.lng && !activeAction.endereco && isMounted) {
+                                const fallbackAddr = shift.gps_abertura || '-24.4124, -53.5125';
+                                setActiveAction(prev => {
+                                    if (prev && !prev.endereco) {
+                                        return { ...prev, endereco: fallbackAddr };
+                                    }
+                                    return prev;
+                                });
+                            }
+                        }, 2500);
+                        return () => clearTimeout(timer);
+                    }
+                };
+
+                getAddressOrCoords();
+                return () => { isMounted = false; };
+            }, [view, activeAction, gps.lat, gps.lng, gps.status, shift.gps_abertura]);
+
 
 
             // Timers
@@ -452,6 +545,10 @@
                             setPauseElapsed(Math.floor((Date.now() - activeAction.pauseStartTime) / 1000));
                         }
                     }
+                    // Força a atualização do estado visual da Fila de Execução para atualizar os cronômetros correndo
+                    if (pendingTrees.some(t => t.statusFila === 'executando')) {
+                        setPendingTrees(prev => [...prev]);
+                    }
                     if (activeDisposal && activeDisposal.startTime) {
                         setDisposalElapsed(Math.floor((Date.now() - activeDisposal.startTime) / 1000));
                     }
@@ -464,10 +561,11 @@
                 if (shift?.active) idbKeyval.set('mcr_shift_v21_oficial', shift);
                 if (activeAction) idbKeyval.set('mcr_active_v21_oficial', activeAction);
                 else idbKeyval.del('mcr_active_v21_oficial');
+                idbKeyval.set('mcr_pending_trees_v21_oficial', pendingTrees);
                 if (activeDisposal) idbKeyval.set('mcr_disposal_v21_oficial', activeDisposal);
                 else idbKeyval.del('mcr_disposal_v21_oficial');
                 idbKeyval.set('mcr_logs_v21_oficial', logs);
-            }, [hasLoaded, shift, activeAction, activeDisposal, logs]);
+            }, [hasLoaded, shift, activeAction, pendingTrees, activeDisposal, logs]);
 
 
 
@@ -485,72 +583,159 @@
                 });
             };
 
+            const getUsedPhotoBase64s = () => {
+                const list = [];
+                if (shift && shift.foto_unificada) list.push(shift.foto_unificada);
+                
+                if (Array.isArray(pendingTrees)) {
+                    pendingTrees.forEach(t => {
+                        if (t.photosBefore) t.photosBefore.forEach(p => p && list.push(p.base64 || p));
+                        if (t.photosAfter) t.photosAfter.forEach(p => p && list.push(p.base64 || p));
+                    });
+                }
+                
+                if (Array.isArray(logs)) {
+                    logs.forEach(l => {
+                        if (l.photosBefore) l.photosBefore.forEach(p => p && list.push(p.base64 || p));
+                        if (l.photosAfter) l.photosAfter.forEach(p => p && list.push(p.base64 || p));
+                    });
+                }
+                
+                if (activeAction) {
+                    if (activeAction.photosBefore) activeAction.photosBefore.forEach(p => p && list.push(p.base64 || p));
+                    if (activeAction.photosAfter) activeAction.photosAfter.forEach(p => p && list.push(p.base64 || p));
+                }
+                
+                return list.map(item => typeof item === 'string' ? item : (item ? item.base64 : null)).filter(Boolean);
+            };
+
             const processPhoto = async (file, photoType = 'GENERICO') => {
                 if (!file) return null;
 
-                // CORREÇÃO: useWebWorker: false — Web Workers causam falha silenciosa em
-                // alguns celulares Android (WebView restrita, contexto local/PWA).
-                // Sem Worker, a compressão roda na thread principal sem erros.
-                const options = { maxSizeMB: 0.1, maxWidthOrHeight: 1024, useWebWorker: false, initialQuality: 0.7 };
+                // Validação Anti-Fraude: Verificar se a foto foi capturada nos últimos 5 minutos (evitar galeria antiga)
+                let photoTime = null;
+                try {
+                    const exif = await getExifData(file);
+                    if (exif && exif.dateTime) {
+                        const parts = exif.dateTime.split(/[:\s]/);
+                        if (parts.length >= 6) {
+                            const parsedDate = new Date(parts[0], parts[1] - 1, parts[2], parts[3], parts[4], parts[5]);
+                            if (!isNaN(parsedDate.getTime())) {
+                                photoTime = parsedDate.getTime();
+                            }
+                        }
+                    }
+                } catch (exifErr) {
+                    console.warn("Falha ao ler EXIF para tempo:", exifErr);
+                }
+
+                if (!photoTime && file.lastModified) {
+                    photoTime = file.lastModified;
+                }
+
+                if (photoTime) {
+                    const diffMinutes = Math.abs(Date.now() - photoTime) / (1000 * 60);
+                    const isFotoAntiga = diffMinutes > 5; 
+                    if (isFotoAntiga) {
+                        console.warn("⚠️ [MODO TESTE - GALERIA LIBERADA]: Foto antiga detectada (" + Math.round(diffMinutes) + " min), mas permitida para demonstração e testes no PC.");
+                        // throw new Error("FOTO_ANTIGA");
+                    }
+                }
 
                 try {
-                    const compressedFile = await imageCompression(file, options);
-                    const metadata = await getExifData(file);
+                    // Carrega a imagem usando ObjectURL (extremamente leve)
+                    const objectUrl = URL.createObjectURL(file);
+                    
+                    const img = new Image();
+                    img.src = objectUrl;
+                    
+                    // Espera carregar a imagem com timeout de segurança
+                    await new Promise((res, rej) => {
+                        const t = setTimeout(() => rej(new Error('timeout')), 10000);
+                        img.onload = () => { clearTimeout(t); res(); };
+                        img.onerror = () => { clearTimeout(t); rej(new Error('img_load_error')); };
+                    });
+
+                    // Redimensiona proporcionalmente para largura ou altura máxima de 1024px
+                    let width = img.width;
+                    let height = img.height;
+                    const maxDim = 1024;
+                    if (width > maxDim || height > maxDim) {
+                        if (width > height) {
+                            height = Math.round((height * maxDim) / width);
+                            width = maxDim;
+                        } else {
+                            width = Math.round((width * maxDim) / height);
+                            height = maxDim;
+                        }
+                    }
+
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    
+                    // Desenha a imagem redimensionada
+                    ctx.drawImage(img, 0, 0, width, height);
+                    
+                    // Libera o object URL imediatamente
+                    URL.revokeObjectURL(objectUrl);
+
+                    // Desenha a marca d'água de georreferenciamento (data + GPS)
+                    const fontSize = Math.max(12, Math.floor(width / 35));
+                    ctx.font = `bold ${fontSize}px monospace`;
+                    ctx.fillStyle = 'white';
+                    ctx.strokeStyle = 'black';
+                    ctx.lineWidth = Math.max(1, fontSize / 8);
+
+                    const dateStr = new Date().toLocaleString('pt-BR');
+                    const lat = gps.lat;
+                    const lng = gps.lng;
+                    const gpsStr = (lat && lng) ? `${parseFloat(lat).toFixed(6)}, ${parseFloat(lng).toFixed(6)}` : 'GPS N/A';
+                    const text = `${dateStr} | GPS: ${gpsStr}`;
+                    
+                    // Desenha no canto inferior esquerdo
+                    ctx.strokeText(text, 20, height - 25);
+                    ctx.fillText(text, 20, height - 25);
+
+                    // Exporta como jpeg compacto direto (qualidade 0.65)
+                    const base64 = canvas.toDataURL('image/jpeg', 0.65);
+
+                    // Validação Anti-Fraude de Duplicidade de Fotos no Turno
+                    try {
+                        const usedBase64s = getUsedPhotoBase64s();
+                        if (usedBase64s.includes(base64)) {
+                            alert("⚠️ ERRO DE SEGURANÇA: Esta foto já foi utilizada neste turno!\n\nPor favor, tire uma nova foto real. A duplicação de imagens é proibida por razões de fiscalização e compliance.");
+                            throw new Error("FOTO_DUPLICADA");
+                        }
+                    } catch (err) {
+                        if (err.message === "FOTO_DUPLICADA") throw err;
+                        // Silencia outros possíveis erros de leitura de array para não travar a câmera
+                        console.error("Erro na validação de fotos: ", err);
+                    }
 
                     const fileExt = (file.name || 'foto.jpg').split('.').pop() || 'jpg';
-                    const fileName = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
-                    const storagePath = `${shift.journeyDate || 'SEM_DATA'}/${shift.placa || 'SEM_PLACA'}/${photoType}/${fileName}`;
-
-                    let base64 = await imageCompression.getDataUrlFromFile(compressedFile);
-
-                    // Watermark com timeout para evitar travamento em celulares lentos
-                    try {
-                        const img = new Image();
-                        img.src = base64;
-                        await new Promise((res, rej) => {
-                            const t = setTimeout(() => rej(new Error('timeout')), 8000);
-                            img.onload = () => { clearTimeout(t); res(); };
-                            img.onerror = () => { clearTimeout(t); rej(new Error('img_load_error')); };
-                        });
-                        const canvas = document.createElement('canvas');
-                        canvas.width = img.width; canvas.height = img.height;
-                        const ctx = canvas.getContext('2d');
-                        ctx.drawImage(img, 0, 0);
-                        const fontSize = Math.max(10, Math.floor(canvas.width / 35));
-                        ctx.font = `bold ${fontSize}px monospace`;
-                        ctx.fillStyle = 'white';
-                        ctx.strokeStyle = 'black';
-                        ctx.lineWidth = Math.max(1, fontSize / 8);
-
-                        const dateStr = metadata.dateTime || new Date().toLocaleString('pt-BR');
-                        const lat = metadata.lat || gps.lat;
-                        const lng = metadata.lng || gps.lng;
-                        const gpsStr = (lat && lng) ? `${parseFloat(lat).toFixed(6)}, ${parseFloat(lng).toFixed(6)}` : 'GPS N/A';
-                        const text = `${dateStr} | GPS: ${gpsStr}`;
-                        ctx.strokeText(text, 20, canvas.height - 25);
-                        ctx.fillText(text, 20, canvas.height - 25);
-
-                        base64 = canvas.toDataURL('image/jpeg', 0.6);
-                    } catch (canvasErr) {
-                        // Fallback: usa a imagem comprimida sem watermark
-                        console.warn('Watermark ignorado (canvas indisponível):', canvasErr);
-                    }
+                    const treeId = activeAction?.treeId || '';
+                    const treeFolder = treeId ? `${treeId}/` : '';
+                    const treePrefix = treeId ? `${treeId}_` : '';
+                    const fileName = `${treePrefix}${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
+                    const storagePath = `${shift.journeyDate || 'SEM_DATA'}/${shift.placa || 'SEM_PLACA'}/${photoType}/${treeFolder}${fileName}`;
 
                     return {
                         base64: base64,
                         localPreview: base64,
                         storagePath: storagePath,
                         publicUrl: base64,
-                        metadata: { ...metadata, originalDate: metadata.dateTime, gps_lat: metadata.lat, gps_lng: metadata.lng },
+                        metadata: { originalDate: dateStr, gps_lat: lat, gps_lng: lng },
                         capturedAt: new Date().toISOString()
                     };
                 } catch (e) {
-                    // CORREÇÃO: e pode não ser um Error padrão (ex: string lançada pela lib)
                     const msg = (e && e.message) ? e.message : String(e);
                     alert('Erro processamento img (' + msg + ')');
                     return null;
                 }
             };
+
 
             
             const stats = useMemo(() => {
@@ -561,7 +746,16 @@
                 const totalManejoPuroSec = treeLogs.reduce((acc, log) => acc + (log.effectiveDurationSec || 0), 0);
                 const totalDisposalSec = disposalLogs.reduce((acc, log) => acc + (log.durationSec || 0), 0);
 
-                const runningManejo = (activeAction?.type === 'tree') ? elapsed : 0;
+                // Calcula o tempo de manejo rodando no relógio atual de forma paralela
+                const activeRunningTrees = pendingTrees.filter(t => t.statusFila === 'executando');
+                let runningManejo = 0;
+                if (activeRunningTrees.length > 0) {
+                    const minStartTime = Math.min(...activeRunningTrees.map(t => t.executionStartTime || Date.now()));
+                    runningManejo = Math.floor((Date.now() - minStartTime) / 1000);
+                } else if (activeAction && activeAction.type === 'tree' && !activeAction.isPaused) {
+                    runningManejo = elapsed;
+                }
+
                 const runningDisposal = (activeDisposal) ? disposalElapsed : 0;
                 const runningPause = (activeAction?.isPaused || activeAction?.type === 'pause') ? pauseElapsed : 0;
 
@@ -581,7 +775,7 @@
                     treesPruned: treeLogs.filter(t => t.pruningTypes?.some(p => !p.includes('CORTE'))).length,
                     treesSuppressed: treeLogs.filter(t => t.pruningTypes?.some(p => p.includes('CORTE'))).length
                 };
-            }, [logs, journeyElapsed, activeAction, activeDisposal, elapsed, pauseElapsed, disposalElapsed]);
+            }, [logs, journeyElapsed, activeAction, activeDisposal, elapsed, pauseElapsed, disposalElapsed, pendingTrees]);
 
             const finalizeAndClearAll = async () => {
                 await idbKeyval.clear();
@@ -599,6 +793,27 @@
                     );
                 }
                 return null;
+            };
+
+                        const renderZoomModal = () => {
+                if (!zoomPhoto) return null;
+                return (
+                    <div 
+                        onClick={() => setZoomPhoto(null)}
+                        className="fixed inset-0 bg-black/95 flex flex-col items-center justify-center z-[9999] screen-fade cursor-zoom-out p-6"
+                    >
+                        <div className="relative max-w-full max-h-full flex flex-col items-center justify-center" onClick={e => e.stopPropagation()}>
+                            <img src={zoomPhoto} className="max-w-full max-h-[80vh] object-contain rounded-[2rem] shadow-2xl border-4 border-white/10" alt="Zoom" />
+                            <p className="text-white/60 text-[9px] font-black uppercase tracking-widest mt-4">Toque na foto ou fora dela para fechar</p>
+                            <button 
+                                onClick={() => setZoomPhoto(null)}
+                                className="absolute -top-12 right-0 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center active:scale-95 transition-all text-sm border border-white/10"
+                            >
+                                <i className="fas fa-times"></i>
+                            </button>
+                        </div>
+                    </div>
+                );
             };
 
             // ============================================================
@@ -653,8 +868,13 @@
                                                             setShift(prev => ({
                                                                 ...prev,
                                                                 operador: sel.operador,
+                                                                responsavel_empresa: sel.operador,
                                                                 placa: sel.placa,
-                                                                placaAux: sel.placaAux
+                                                                placaAux: sel.placaAux,
+                                                                checklist: {
+                                                                    ...(prev.checklist || {}),
+                                                                    ...(sel.checklistRh || {})
+                                                                }
                                                             }));
                                                         }
                                                     }}
@@ -666,7 +886,7 @@
                                                 </select>
                                                 <i className="fas fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"></i>
                                             </div>
-                                            {equipeId === 'equipe2' && (
+                                            {(equipeId === 'equipe2' || equipeId === 'equipe_manual') && (
                                                 <p className="text-[10px] text-amber-600 font-black uppercase mt-2 flex items-center gap-1">
                                                     <i className="fas fa-triangle-exclamation"></i>
                                                     Preencha sua placa e nome abaixo
@@ -684,7 +904,10 @@
                                                     placeholder="NOME COMPLETO DO OPERADOR"
                                                     className="w-full pl-11 pr-4 py-4 bg-slate-50 border-2 border-transparent rounded-2xl font-bold text-sm uppercase focus:bg-white focus:border-audit-500 transition-all outline-none"
                                                     value={shift.operador}
-                                                    onChange={e => setShift({ ...shift, operador: e.target.value.toUpperCase() })}
+                                                    onChange={e => {
+                                                        const val = e.target.value.toUpperCase();
+                                                        setShift({ ...shift, operador: val, responsavel_empresa: val });
+                                                    }}
                                                 />
                                             </div>
                                         </div>
@@ -1063,6 +1286,7 @@
 
             if (view === 'dashboard') return (
                 <div className="screen-fade pb-24 no-scrollbar min-h-screen bg-slate-50">
+                    {renderZoomModal()}
                     {/* Header Premium */}
                     <div className="p-6 pb-20 bg-slate-900 text-white rounded-b-[3rem] shadow-2xl relative overflow-hidden">
                         <div className="absolute top-0 right-0 w-64 h-64 bg-audit-600/10 rounded-full blur-3xl -mr-20 -mt-20"></div>
@@ -1070,15 +1294,15 @@
                         
                         <div className="flex justify-between items-start relative z-10">
                             <div className="flex items-center gap-4">
-                                <div className="w-14 h-14 bg-gradient-to-br from-audit-500 to-audit-700 rounded-2xl flex items-center justify-center text-white shadow-lg border border-audit-400/30">
-                                    <i className="fas fa-tree text-2xl"></i>
+                                <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center shadow-lg border border-slate-200 overflow-hidden p-1">
+                                    <img src="./BRASÃO.jpg" className="w-full h-full object-contain" alt="Brasão" />
                                 </div>
                                 <div>
                                     <div className="flex items-center gap-2 mb-1">
-                                        <span className="text-[10px] font-black bg-audit-600/20 text-audit-400 px-2 py-0.5 rounded-md uppercase tracking-widest border border-audit-800">Rad Poda v21</span>
+                                        <span className="text-[10px] font-black bg-audit-600/20 text-audit-400 px-2 py-0.5 rounded-md uppercase tracking-widest border border-audit-800">Rad Poda</span>
                                         <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></div>
                                     </div>
-                                    <h2 className="font-black text-white text-lg truncate max-w-[180px] uppercase tracking-tight">{shift.operador}</h2>
+                                    
                                 </div>
                             </div>
                             
@@ -1189,10 +1413,117 @@
                                 </div>
                             )}
 
+                            {pendingTrees.length > 0 && (
+                                <Card className="border-2 border-slate-200 shadow-xl !p-6 rounded-[2.5rem] bg-white">
+                                    <div className="flex items-center gap-2 mb-4">
+                                        <i className="fas fa-list-ol text-audit-600 text-sm"></i>
+                                        <Label className="!mb-0 uppercase text-xs font-black text-slate-800">Fila de Execução da Rua ({pendingTrees.length})</Label>
+                                    </div>
+                                    <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1 no-scrollbar">
+                                        {pendingTrees.map((tree, idx) => {
+                                            const isRunning = tree.statusFila === 'executando';
+                                            let treeElapsed = 0;
+                                            if (isRunning && tree.executionStartTime) {
+                                                treeElapsed = Math.floor((Date.now() - tree.executionStartTime) / 1000) - (tree.totalPausedSeconds || 0);
+                                            }
+                                            
+                                            const firstPhoto = tree.photosBefore?.[0];
+                                            const photoSrc = firstPhoto ? (firstPhoto.localPreview || firstPhoto.base64) : null;
+                                            
+                                            return (
+                                                <div key={idx} className={`p-4 rounded-[2rem] border-2 flex items-center justify-between gap-4 transition-all shadow-sm ${isRunning ? 'bg-emerald-50/30 border-emerald-300/70 shadow-emerald-100/50' : 'bg-slate-50 border-slate-100'}`}>
+                                                    {/* Miniatura da Foto com Zoom ao Clicar */}
+                                                    <div className="relative flex-shrink-0">
+                                                        {photoSrc ? (
+                                                            <div className="w-14 h-14 rounded-2xl overflow-hidden border border-slate-200 bg-white shadow-inner active:scale-95 transition-transform cursor-pointer relative"
+                                                                 onClick={() => setZoomPhoto(photoSrc)}
+                                                            >
+                                                                 <img src={photoSrc} className="w-full h-full object-cover" alt="Antes" />
+                                                                 <div className="absolute inset-0 bg-black/10 hover:bg-transparent transition-colors"></div>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="w-14 h-14 rounded-2xl bg-slate-200 flex items-center justify-center text-slate-400">
+                                                                <i className="fas fa-tree text-lg"></i>
+                                                            </div>
+                                                        )}
+                                                        <span className="absolute -top-2 -left-2 w-5 h-5 rounded-full bg-slate-900 text-white border border-white text-[9px] font-black flex items-center justify-center shadow-md">
+                                                            {idx + 1}
+                                                        </span>
+                                                    </div>
+
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="flex items-center gap-2 flex-wrap">
+                                                            <p className="font-black text-xs text-slate-800 uppercase truncate leading-none">
+                                                                {tree.species}
+                                                            </p>
+                                                            {isRunning && (
+                                                                <span className="bg-emerald-500 text-white font-mono text-[8px] font-black px-1.5 py-0.5 rounded-full animate-pulse shadow-sm">
+                                                                    {formatDuration(treeElapsed)}
+                                                                </span>
+                                                            )}
+                                                            {tree.copelRequired === 'SIM' && (
+                                                                <span className="bg-red-100 text-red-600 border border-red-200/50 text-[7px] font-black uppercase px-1.5 py-0.2 rounded">COPEL</span>
+                                                            )}
+                                                        </div>
+                                                        
+                                                        {/* Endereço e Bairro */}
+                                                        <p className="text-[9px] text-slate-500 font-bold uppercase tracking-wider mt-1 truncate">
+                                                            📍 {tree.endereco || 'Local Não Informado'}
+                                                        </p>
+                                                        
+                                                        {/* Serviços Exigidos */}
+                                                        <p className="text-[8px] text-slate-400 font-black uppercase tracking-widest mt-1">
+                                                            🛠️ {(tree.pruningTypes && tree.pruningTypes.length > 0) ? tree.pruningTypes.join(' + ') : 'Manejo Geral'}
+                                                        </p>
+                                                        
+                                                        <p className="text-[8px] text-slate-400 font-mono mt-0.5">CAP: {tree.cap}cm | H: {tree.height}m</p>
+                                                    </div>
+
+                                                    <div className="flex items-center gap-2">
+                                                        {isRunning ? (
+                                                            <button 
+                                                                onClick={() => {
+                                                                    const activeTree = {
+                                                                        ...tree,
+                                                                        fromFilaIdx: idx
+                                                                    };
+                                                                    setActiveAction(activeTree);
+                                                                    setView('active_service');
+                                                                }}
+                                                                className="px-4 py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase shadow-md active:scale-95 transition-all hover:bg-blue-700">
+                                                                Finalizar
+                                                            </button>
+                                                        ) : (
+                                                            <button 
+                                                                onClick={() => {
+                                                                    const now = Date.now();
+                                                                    setPendingTrees(prev => {
+                                                                        const list = [...prev];
+                                                                        list[idx] = {
+                                                                            ...list[idx],
+                                                                            statusFila: 'executando',
+                                                                            executionStartTime: now,
+                                                                            startTime: now,
+                                                                            totalPausedSeconds: 0
+                                                                        };
+                                                                        return list;
+                                                                    });
+                                                                }}
+                                                                className="px-4 py-2.5 bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase shadow-md active:scale-95 transition-all hover:bg-emerald-700">
+                                                                Iniciar
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </Card>
+                            )}
+
                             <button 
-                                disabled={gps.status === 'denied'} 
                                 onClick={() => { 
-                                    setActiveAction({ pruningTypes: [], status: 'OK', totalPausedSeconds: 0, photosBefore: [], photosAfter: [], startTime: Date.now(), copelRequired: 'NÃO' }); 
+                                    setActiveAction({ pruningTypes: [], status: 'OK', totalPausedSeconds: 0, photosBefore: [], photosAfter: [], startTime: Date.now(), copelRequired: 'NÃO', demandSource: 'manutencao' }); 
                                     setView('tree_form'); 
                                 }} 
                                 className="w-full bg-slate-900 text-white p-10 rounded-[2.8rem] shadow-2xl flex flex-col items-center gap-4 transition-all hover:shadow-audit-500/20 active:scale-95 disabled:bg-slate-300 disabled:opacity-50 border-b-[6px] border-audit-600">
@@ -1208,7 +1539,6 @@
                             <div className="grid grid-cols-2 gap-4">
                                 {!activeDisposal && (
                                     <button 
-                                        disabled={gps.status === 'denied'} 
                                         onClick={() => { 
                                             setActiveAction({ type: 'disposal', step: 'start', photoBefore: null }); 
                                             setView('disposal_form'); 
@@ -1244,29 +1574,73 @@
                     </div>
 
                     {showEndConfirm && (
-                        <div className="fixed inset-0 z-[100] modal-overlay flex items-center justify-center p-8 backdrop-blur-sm bg-slate-900/40">
-                            <div className="bg-white w-full max-w-sm rounded-[3rem] p-10 shadow-2xl text-center border-t-8 border-red-500 animate-in slide-in-from-bottom-2 duration-300">
-                                <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6">
-                                    <i className="fas fa-triangle-exclamation text-red-500 text-3xl"></i>
+                        <div className="fixed inset-0 z-[100] modal-overlay flex items-center justify-center p-6 backdrop-blur-sm bg-slate-900/60">
+                            <div className="bg-white w-full max-w-md rounded-[3rem] p-8 shadow-2xl text-center border-t-8 border-red-500 animate-in slide-in-from-bottom-2 duration-300 max-h-[95vh] flex flex-col no-scrollbar border-b-4 border-slate-200">
+                                <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 flex-shrink-0">
+                                    <i className="fas fa-triangle-exclamation text-red-500 text-2xl animate-bounce"></i>
                                 </div>
-                                <h3 className="text-xl font-black text-slate-800 uppercase leading-tight mb-2">Encerrar Turno?</h3>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-relaxed mb-8 px-4">Esta ação é irreversível e enviará o relatório final de medição.</p>
+                                <h3 className="text-xl font-black text-slate-800 uppercase leading-tight mb-1 flex-shrink-0">Encerrar Turno?</h3>
+                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-6 flex-shrink-0 leading-relaxed">
+                                    Esta ação é irreversível e finalizará o envio dos relatórios de medição.
+                                </p>
                                 
-                                <div className="space-y-4">
+                                {/* Checklist de Árvores do Turno */}
+                                <div className="text-left mb-6 bg-slate-50 p-5 rounded-[2rem] border border-slate-100 flex-1 overflow-hidden flex flex-col shadow-inner">
+                                    <div className="flex items-center justify-center gap-2 mb-3 flex-shrink-0">
+                                        <i className="fas fa-clipboard-check text-audit-600 text-xs"></i>
+                                        <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Resumo dos Serviços do Turno</p>
+                                    </div>
+                                    <div className="space-y-2.5 overflow-y-auto pr-1 no-scrollbar flex-1">
+                                        {logs.filter(l => l.type === 'tree').length === 0 ? (
+                                            <p className="text-center text-[9px] text-slate-400 font-black uppercase py-6 tracking-widest">Nenhum serviço finalizado hoje.</p>
+                                        ) : (
+                                            logs.filter(l => l.type === 'tree').map((log, idx) => {
+                                                const hasBefore = log.photosBefore && log.photosBefore.filter(p => p).length >= 3;
+                                                const hasAfter = log.photosAfter && log.photosAfter.filter(p => p).length >= 3;
+                                                const hasImpedimento = log.status === 'IMPEDIDO';
+                                                
+                                                return (
+                                                    <div key={idx} className="flex justify-between items-center text-[10px] pb-2 border-b border-slate-200/50 last:border-0">
+                                                        <div className="min-w-0 flex-1 pr-2">
+                                                            <p className="font-black text-slate-800 uppercase truncate">{idx + 1}. {log.species}</p>
+                                                            <p className="text-[8px] text-slate-400 font-mono mt-0.5">CAP: {log.cap}cm | OS: {log.osId || 'Sem OS'}</p>
+                                                        </div>
+                                                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                                                            {hasImpedimento ? (
+                                                                <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full text-[8px] font-black uppercase border border-amber-200/30">Impedido</span>
+                                                            ) : (
+                                                                <>
+                                                                    <span className={`px-2 py-0.5 rounded-full text-[7px] font-black uppercase border ${hasBefore ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-red-50 text-red-700 border-red-100'}`}>Ant</span>
+                                                                    <span className={`px-2 py-0.5 rounded-full text-[7px] font-black uppercase border ${hasAfter ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-red-50 text-red-700 border-red-100'}`}>Dep</span>
+                                                                </>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })
+                                        )}
+                                    </div>
+                                </div>
+                                
+                                <div className="grid grid-cols-2 gap-4 flex-shrink-0">
                                     <button 
                                         onClick={async () => {
+                                            if (pendingTrees.length > 0) {
+                                                alert(`⚠️ Você ainda possui ${pendingTrees.length} árvore(s) em execução na fila. Finalize todas antes de encerrar o turno.`);
+                                                return;
+                                            }
                                             const endTime = new Date();
                                             setShift({ ...shift, journeyEndTime: Date.now() });
-                                            setShowEndConfirm(false); 
+                                            setShowEndConfirm(false);
                                             setView('end_day');
                                         }} 
-                                        className="w-full bg-slate-900 text-white py-5 rounded-[1.5rem] font-black uppercase shadow-xl hover:shadow-red-500/20 active:scale-95 transition-all text-sm tracking-widest">
-                                        Sim, Confirmar
+                                        className="w-full bg-slate-900 border-b-4 border-black text-white py-5 rounded-[1.8rem] font-black uppercase shadow-xl hover:shadow-red-500/10 active:scale-95 transition-all text-sm tracking-wider flex items-center justify-center gap-2">
+                                        <i className="fas fa-check-circle text-emerald-400"></i> Sim, Fechar
                                     </button>
                                     <button 
                                         onClick={() => setShowEndConfirm(false)} 
-                                        className="w-full bg-slate-100 text-slate-400 py-4 rounded-[1.5rem] font-black uppercase text-[10px] tracking-widest active:scale-95">
-                                        Voltar ao Radar
+                                        className="w-full bg-slate-100 border-b-4 border-slate-200 text-slate-700 py-5 rounded-[1.8rem] font-black uppercase text-sm tracking-wider active:scale-95 transition-all flex items-center justify-center gap-2 hover:bg-slate-200">
+                                        <i className="fas fa-rotate-left"></i> Voltar
                                     </button>
                                 </div>
                             </div>
@@ -1287,7 +1661,10 @@
                         {/* Header Voltar */}
                         <div className="flex items-center justify-between mb-8">
                             <button 
-                                onClick={() => { setActiveAction(null); setView('dashboard'); }} 
+                                onClick={() => {
+                                    setActiveAction(null);
+                                    setView('dashboard');
+                                }} 
                                 className="w-12 h-12 rounded-2xl bg-white shadow-sm flex items-center justify-center text-slate-400 hover:text-slate-600 transition-colors border border-slate-100">
                                 <i className="fas fa-arrow-left"></i>
                             </button>
@@ -1349,32 +1726,46 @@
                                     <div>
                                         <div className="flex items-center gap-2 mb-3">
                                             <i className="fas fa-location-dot text-[10px] text-emerald-500"></i>
-                                            <Label required className="!mb-0 uppercase text-[9px] tracking-widest text-slate-400">Local da Árvore (Endereço)</Label>
+                                            <Label required className="!mb-0 uppercase text-[9px] tracking-widest text-slate-400">Coordenadas da Árvore (GPS)</Label>
                                         </div>
                                         <div className="bg-slate-50 p-4 rounded-2xl border-2 border-slate-100 mb-4 flex items-center gap-3">
                                             <input 
                                                 className="w-full bg-transparent border-none p-0 focus:ring-0 font-black uppercase text-xs placeholder:text-slate-200" 
-                                                placeholder="BUSCANDO LOCALIZAÇÃO..." 
+                                                placeholder="AGUARDANDO SINAL DE GPS..." 
                                                 value={activeAction.endereco || ''} 
                                                 onChange={e => setActiveAction({ ...activeAction, endereco: e.target.value.toUpperCase() })} 
                                             />
                                             <button 
-                                                onClick={async () => {
-                                                    if (!gps.lat || !gps.lng) { alert("GPS não capturado!"); return; }
-                                                    try {
-                                                        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${gps.lat}&lon=${gps.lng}&zoom=18&addressdetails=1`);
-                                                        const data = await res.json();
-                                                        const addr = data.display_name.split(',').slice(0, 3).join(',').toUpperCase();
-                                                        setActiveAction({ ...activeAction, endereco: addr });
-                                                    } catch (e) {
-                                                        setActiveAction({ ...activeAction, endereco: shift.bairro_local });
-                                                        alert("Offline: Usando Local do Turno.");
-                                                    }
+                                                onClick={() => {
+                                                    if (!gps.lat || !gps.lng) { alert("GPS ainda buscando sinal!"); return; }
+                                                    setActiveAction({ ...activeAction, endereco: `${gps.lat}, ${gps.lng}` });
                                                 }}
-                                                className="w-10 h-10 bg-slate-200 rounded-xl flex items-center justify-center text-slate-600 active:scale-95">
+                                                className="w-10 h-10 bg-slate-200 rounded-xl flex items-center justify-center text-slate-600 active:scale-95"
+                                                title="Recapturar Coordenada Atual">
                                                 <i className="fas fa-arrows-rotate"></i>
                                             </button>
                                         </div>
+
+                                        {(gps.status === 'denied' || gps.status === 'error' || !gps.lat || !gps.lng) && (
+                                            <div className="bg-red-50 border-2 border-red-500 rounded-3xl p-5 mb-4 text-left animate-pulse shadow-lg">
+                                                <div className="flex items-start gap-3">
+                                                    <div className="w-8 h-8 rounded-full bg-red-600 text-white flex items-center justify-center flex-shrink-0 shadow-md">
+                                                        <i className="fas fa-triangle-exclamation text-sm"></i>
+                                                    </div>
+                                                    <div className="flex-1">
+                                                        <p className="text-[10px] font-black text-red-600 uppercase tracking-wider mb-1">
+                                                            ⚠️ ALERTA DE SEGURANÇA OPERACIONAL:
+                                                        </p>
+                                                        <p className="text-[9px] text-slate-800 leading-relaxed uppercase font-black">
+                                                            O GPS do aparelho foi desativado ou está sem sinal. O prontuário está gravando a coordenada de abertura do turno como fallback numérico obrigatório.
+                                                        </p>
+                                                        <p className="text-[9px] text-red-600 leading-relaxed uppercase font-black mt-1.5">
+                                                            A empresa corre o risco de GLOSA INTEGRAL DO MANEJO e DESCREDENCIAMENTO CONTRATUAL por parte da Prefeitura se for comprovada a desativação intencional do localizador! Mantenha a localização sempre ligada no celular.
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
 
                                         <div className="flex items-center gap-2 mb-3">
                                             <i className="fas fa-bolt-lightning text-[10px] text-amber-500"></i>
@@ -1471,49 +1862,110 @@
                                     <div className="bg-slate-50 p-6 rounded-[2rem] border-2 border-slate-100 shadow-inner">
                                         <div className="flex items-center gap-2 mb-4">
                                             <i className="fas fa-tag text-[10px] text-slate-400"></i>
-                                            <Label required className="!mb-0 uppercase tracking-widest text-[10px]">Espécie da Árvore</Label>
+                                            <Label required className="!mb-0 uppercase tracking-widest text-[10px]">Informe o Nome Comum da Árvore (Espécie)</Label>
                                         </div>
                                         <input 
                                             list="especies" 
-                                            className="w-full bg-transparent border-none p-0 focus:ring-0 font-black uppercase text-xl placeholder:text-slate-200" 
-                                            placeholder="PESQUISAR NOME..." 
+                                            className="w-full bg-transparent border-none p-0 focus:ring-0 font-black uppercase text-xl placeholder:text-slate-200 focus:outline-none" 
+                                            placeholder="DIGITE INICIAIS DA LETRA..." 
                                             value={activeAction.species || ''} 
                                             onChange={e => setActiveAction({ ...activeAction, species: e.target.value.toUpperCase() })} 
                                         />
                                         <datalist id="especies">
-                                            {LISTA_ESPECIES.map(s => <option key={s} value={s} />)}
+                                            <option value="NÃO IDENTIFICADA">⚠️ NÃO IDENTIFICADA / DESCONHECIDA</option>
+                                            {LISTA_ESPECIES.map(s => <option key={s} value={s.toUpperCase()} />)}
                                         </datalist>
+                                        {activeAction.species && !LISTA_ESPECIES.map(s => s.toUpperCase()).includes(activeAction.species.toUpperCase()) && activeAction.species !== 'NÃO IDENTIFICADA' && (
+                                            <p className="text-[9px] text-red-600 font-black uppercase mt-1.5 animate-pulse">
+                                                ⚠️ Selecione uma espécie sugerida na lista de busca.
+                                            </p>
+                                        )}
                                     </div>
 
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className={`bg-slate-50 p-6 rounded-[2.2rem] border-2 transition-all ${parseCommaFloat(activeAction.cap) > 500 ? 'border-red-400 bg-red-50' : 'border-slate-100'}`}>
-                                            <Label required className="uppercase text-[9px] tracking-widest text-slate-400">CAP (cm)</Label>
+                                    {/* Seletor de Classe CAP Didático */}
+                                    <div className="bg-slate-50 p-6 rounded-[2.2rem] border-2 border-slate-100 shadow-inner">
+                                        <div className="flex items-center justify-between mb-4">
                                             <div className="flex items-center gap-2">
-                                                <input 
-                                                    type="text" 
-                                                    inputMode="decimal"
-                                                    className="w-full bg-transparent border-none p-0 focus:ring-0 font-black text-2xl" 
-                                                    placeholder="0,0" 
-                                                    value={activeAction.cap || ''} 
-                                                    onChange={e => setActiveAction({ ...activeAction, cap: e.target.value })} 
-                                                />
-                                                <span className="text-slate-300 font-black">cm</span>
+                                                <i className="fas fa-tree text-[10px] text-slate-400"></i>
+                                                <Label required className="!mb-0 uppercase tracking-widest text-[9px] text-slate-400">informe o tamanho aproximado da circunferência da árvore!</Label>
                                             </div>
-                                            {parseCommaFloat(activeAction.cap) > 500 && <p className="text-[7px] text-red-600 font-black uppercase mt-1">⚠️ Valor Muito Alto!</p>}
+                                            {activeAction.cap && (
+                                                <span className="text-[10px] font-black text-[#0D7A3F] bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-100">
+                                                    Classe Oficial: {activeAction.cap} cm
+                                                </span>
+                                            )}
                                         </div>
-                                        <div className="bg-slate-50 p-6 rounded-[2.2rem] border-2 border-slate-100">
-                                            <Label required className="uppercase text-[9px] tracking-widest text-slate-400">Altura (m)</Label>
+                                        <div className="grid grid-cols-1 gap-2.5">
+                                            {[
+                                                { label: "Classe I (até 30 cm)", desc: "Tronco Fino (ex: Garrafa Pet)", val: "30" },
+                                                { label: "Classe II (31 a 60 cm)", desc: "Tronco Médio (ex: Prato de Jantar)", val: "60" },
+                                                { label: "Classe III (61 a 90 cm)", desc: "Tronco Grosso (ex: Bola de Futebol)", val: "90" },
+                                                { label: "Classe IV (91 a 120 cm)", desc: "Tronco Muito Grosso (ex: Balde Grande)", val: "120" },
+                                                { label: "Classe V (acima de 120 cm)", desc: "Tronco Gigante (ex: Tampa de Bueiro)", val: "150" }
+                                            ].map(cls => {
+                                                const isSel = activeAction.cap === cls.val;
+                                                return (
+                                                    <button
+                                                        key={cls.val}
+                                                        type="button"
+                                                        onClick={() => setActiveAction({ ...activeAction, cap: cls.val })}
+                                                        className={`w-full py-3.5 px-5 rounded-2xl font-black uppercase text-left transition-all flex flex-col justify-center border-2 active:scale-[0.98] ${
+                                                            isSel 
+                                                                ? "bg-[#0D7A3F] text-white border-[#0D7A3F] shadow-lg shadow-[#0D7A3F]/20" 
+                                                                : "bg-white text-slate-700 border-slate-100 hover:bg-slate-50"
+                                                        }`}
+                                                    >
+                                                        <div className="flex items-center justify-between w-full">
+                                                            <span className="text-xs font-black">{cls.label}</span>
+                                                            {isSel && <i className="fas fa-check-circle text-emerald-400 text-sm"></i>}
+                                                        </div>
+                                                        <span className={`text-[8px] font-bold mt-0.5 ${isSel ? 'text-emerald-100' : 'text-slate-400'}`}>{cls.desc}</span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+
+                                    {/* Seletor de Classe de Altura Didático */}
+                                    <div className="bg-slate-50 p-6 rounded-[2.2rem] border-2 border-slate-100 shadow-inner">
+                                        <div className="flex items-center justify-between mb-4">
                                             <div className="flex items-center gap-2">
-                                                <input 
-                                                    type="text" 
-                                                    inputMode="decimal"
-                                                    className="w-full bg-transparent border-none p-0 focus:ring-0 font-black text-2xl" 
-                                                    placeholder="0,0" 
-                                                    value={activeAction.height || ''} 
-                                                    onChange={e => setActiveAction({ ...activeAction, height: e.target.value })} 
-                                                />
-                                                <span className="text-slate-300 font-black">m</span>
+                                                <i className="fas fa-ruler-vertical text-[10px] text-slate-400"></i>
+                                                <Label required className="!mb-0 uppercase tracking-widest text-[9px] text-slate-400">informe a Altura Estimada da Árvore</Label>
                                             </div>
+                                            {activeAction.height && (
+                                                <span className="text-[10px] font-black text-[#0D7A3F] bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-100">
+                                                    Classe Oficial: {activeAction.height} metros
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div className="grid grid-cols-1 gap-2.5">
+                                            {[
+                                                { label: "Classe I (até 6 metros)", desc: "Árvore Baixa (ex: Poste de Iluminação Pública)", val: "6" },
+                                                { label: "Classe II (6 a 12 metros)", desc: "Árvore Média (ex: Prédio de 2 Andares)", val: "12" },
+                                                { label: "Classe III (12 a 18 metros)", desc: "Árvore Alta (ex: Prédio de 4 Andares)", val: "18" },
+                                                { label: "Classe IV (acima de 18 metros)", desc: "Árvore Gigante (Copa Alta / Florestal)", val: "20" }
+                                            ].map(cls => {
+                                                const isSel = activeAction.height === cls.val;
+                                                return (
+                                                    <button
+                                                        key={cls.val}
+                                                        type="button"
+                                                        onClick={() => setActiveAction({ ...activeAction, height: cls.val })}
+                                                        className={`w-full py-3.5 px-5 rounded-2xl font-black uppercase text-left transition-all flex flex-col justify-center border-2 active:scale-[0.98] ${
+                                                            isSel 
+                                                                ? "bg-[#0D7A3F] text-white border-[#0D7A3F] shadow-lg shadow-[#0D7A3F]/20" 
+                                                                : "bg-white text-slate-700 border-slate-100 hover:bg-slate-50"
+                                                        }`}
+                                                    >
+                                                        <div className="flex items-center justify-between w-full">
+                                                            <span className="text-xs font-black">{cls.label}</span>
+                                                            {isSel && <i className="fas fa-check-circle text-emerald-400 text-sm"></i>}
+                                                        </div>
+                                                        <span className={`text-[8px] font-bold mt-0.5 ${isSel ? 'text-emerald-100' : 'text-slate-400'}`}>{cls.desc}</span>
+                                                    </button>
+                                                );
+                                            })}
                                         </div>
                                     </div>
                                 </div>
@@ -1580,7 +2032,38 @@
                                             <p className="text-[8px] font-bold text-audit-200 uppercase tracking-widest">Mínimo 3 fotos obrigatórias</p>
                                         </div>
                                     </div>
-                                    
+                                    <div className="mb-4">
+                                        <label className="w-full py-5 rounded-2xl bg-white hover:bg-slate-50 active:scale-[0.98] transition-all text-slate-800 border-2 border-dashed border-slate-300 flex items-center justify-center gap-3 cursor-pointer text-xs font-black uppercase shadow-lg">
+                                            <i className="fas fa-camera text-base text-emerald-600"></i>
+                                            (Bater ou adicionar 3 fotos de uma vez)
+                                            <input 
+                                                type="file" 
+                                                accept="image/*" 
+                                                multiple 
+                                                className="hidden" 
+                                                onChange={async e => {
+                                                    const files = Array.from(e.target.files);
+                                                    if (files.length === 0) return;
+                                                    if (files.length !== 3) {
+                                                        alert("⚠️ SELEÇÃO INCORRETA!\n\nVocê deve escolher EXATAMENTE 3 fotos da galeria (nem mais, nem menos) para atender às exigências de fiscalização do contrato.");
+                                                        e.target.value = ""; // Reseta o input
+                                                        return;
+                                                    }
+                                                    
+                                                    const list = [...(activeAction.photosBefore || [])];
+                                                    for (let i = 0; i < files.length; i++) {
+                                                        const processed = await processPhoto(files[i], `ANTES_${i + 1}`);
+                                                        list[i] = processed;
+                                                    }
+                                                    setActiveAction(prev => ({ ...prev, photosBefore: list }));
+                                                }}
+                                            />
+                                        </label>
+                                        <p className="text-[9px] font-bold text-white/95 uppercase text-center mt-2 tracking-wider">
+                                            💡 Dica: As fotos podem ser tiradas com a câmera ou inseridas da galeria em sequência.
+                                        </p>
+                                    </div>
+
                                     <div className="grid grid-cols-3 gap-3">
                                         {[0, 1, 2].map(i => (
                                             <div key={i} className="group relative">
@@ -1615,9 +2098,34 @@
                                             const treeId = generateTreeId(activeAction.species, cleanCap, gps.lat, gps.lng);
                                             const coordsStr = safeCoords(gps.lat, gps.lng);
                                             const now = Date.now();
+                                            
+                                            // Auditoria Silenciosa de GPS
+                                            let auditGps = "GPS OK (ONLINE)";
+                                            if (gps.lat && gps.lng) {
+                                                if (activeAction.endereco && activeAction.endereco.match(/^-?[0-9.]+,\s*-?[0-9.]+$/)) {
+                                                    auditGps = "GPS OK (OFFLINE)";
+                                                }
+                                            } else {
+                                                if (gps.status === 'denied' || gps.status === 'error') {
+                                                    auditGps = shift.gps_abertura ? "AUDITORIA: GPS DESATIVADO (FALLBACK ABERTURA)" : "AUDITORIA: GPS DESATIVADO (FALLBACK CENTRO PADRAO)";
+                                                } else {
+                                                    auditGps = "AUDITORIA: SINAL GPS AUSENTE/LENTO (FALLBACK)";
+                                                }
+                                            }
+                                            
+                                            // Converte o endereço com fallback se GPS desativado/offline no impedimento
+                                            const finalEndereco = activeAction.endereco || shift.gps_abertura || '-24.4124, -53.5125';
+                                            
+                                            // Atualiza retroativamente o storagePath da foto de impedimento com o treeId gerado
+                                            const updatedPhotoProblem = activeAction.photoProblem ? {
+                                                ...activeAction.photoProblem,
+                                                storagePath: `${shift.journeyDate || 'SEM_DATA'}/${shift.placa || 'SEM_PLACA'}/IMPEDIMENTO/${treeId}/${treeId}_IMPEDIMENTO.${activeAction.photoProblem.storagePath.split('.').pop() || 'jpg'}`
+                                            } : null;
+
                                             const log = { 
                                                 ...activeAction, 
                                                 treeId, 
+                                                photoProblem: updatedPhotoProblem,
                                                 type: 'tree', 
                                                 executionStartTime: now, 
                                                 executionDurationSec: 0, 
@@ -1627,89 +2135,115 @@
                                                 endTime: now, 
                                                 status: 'IMPEDIDO', 
                                                 coords: coordsStr, 
+                                                endereco: finalEndereco,
                                                 lat: safeFloat(gps.lat), 
                                                 lng: safeFloat(gps.lng), 
+                                                gps_auditoria: auditGps,
                                                 timestamp: new Date().toISOString() 
                                             };
                                             safeAddLog(log);
-
-                                            setActiveAction(null); 
-                                            setView('dashboard');
+                                         
+                                         // Remove da lista ativa
+                                         const newList = activeActions.filter((_, idx) => idx !== activeActionIndex);
+                                         setActiveActions(newList);
+                                         
+                                         if (newList.length > 0) {
+                                             setActiveAction(newList[0]);
+                                             setActiveActionIndex(0);
+                                             setView('active_service');
+                                         } else {
+                                             setActiveAction(null);
+                                             setActiveActionIndex(-1);
+                                             setView('dashboard');
+                                         }
                                         }} 
                                         className="w-full py-6 rounded-[2rem] bg-red-600 text-white font-black uppercase text-lg shadow-2xl flex items-center justify-center gap-4 transition-all active:scale-95 disabled:grayscale disabled:opacity-50 border-b-4 border-red-800">
                                         <i className="fas fa-hand text-xl"></i>
                                         Registrar Impedimento
                                     </button>
                                 ) : (
-                                    <button 
-                                        disabled={
-                                            !activeAction.species || 
-                                            !activeAction.cap || 
-                                            !activeAction.height || 
-                                            (parseCommaFloat(activeAction.cap) < 1 || parseCommaFloat(activeAction.cap) > 500) || 
-                                            (parseCommaFloat(activeAction.height) < 0.5 || parseCommaFloat(activeAction.height) > 60) || 
-                                            (!activeAction.pruningTypes?.length && !isCorteFixo) || 
-                                            (isOsRequired && (!activeAction.osId || !activeAction.osId.match(/^[0-9]{1,5}\/[0-9]{4}$/))) || 
-                                            (activeAction.photosBefore?.filter(p => p).length < 3)
-                                        } 
-                                        onClick={() => {
-                                            if (parseCommaFloat(activeAction.cap) > 500) {
-                                                alert("O CAP informado (" + activeAction.cap + "cm) é superior ao limite de segurança de 5 metros.");
-                                                return;
-                                            }
-                                            try {
-                                                const now = Date.now();
-                                                const cleanCap = parseCommaFloat(activeAction.cap);
-                                                const cleanHeight = parseCommaFloat(activeAction.height);
-                                                const treeId = generateTreeId(activeAction.species, cleanCap, gps.lat, gps.lng);
-                                                const coordsStr = safeCoords(gps.lat, gps.lng);
-                                                const duplicate = logs.find(l => l.treeId === treeId && l.type === 'tree');
-                                                
-                                                const proceedWithNew = () => { 
-                                                    setActiveAction({ 
-                                                        ...activeAction, 
+                                    <div className="flex flex-col gap-4">
+                                        <button 
+                                            disabled={
+                                                !activeAction.species || 
+                                                (!LISTA_ESPECIES.map(s => s.toUpperCase()).includes(activeAction.species.toUpperCase()) && activeAction.species !== 'NÃO IDENTIFICADA') ||
+                                                !activeAction.cap || 
+                                                !activeAction.height || 
+                                                (parseCommaFloat(activeAction.cap) < 1 || parseCommaFloat(activeAction.cap) > 500) || 
+                                                (parseCommaFloat(activeAction.height) < 0.5 || parseCommaFloat(activeAction.height) > 60) || 
+                                                (!activeAction.pruningTypes?.length && !isCorteFixo) || 
+                                                (isOsRequired && (!activeAction.osId || !activeAction.osId.match(/^[0-9]{1,5}\/[0-9]{4}$/))) || 
+                                                (activeAction.photosBefore?.filter(p => p).length < 3)
+                                            } 
+                                            onClick={() => {
+                                                if (parseCommaFloat(activeAction.cap) > 500) {
+                                                    alert("O CAP informado (" + activeAction.cap + "cm) é superior ao limite de segurança de 5 metros.");
+                                                    return;
+                                                }
+                                                try {
+                                                    const cleanCap = parseCommaFloat(activeAction.cap);
+                                                    const cleanHeight = parseCommaFloat(activeAction.height);
+                                                    const treeId = generateTreeId(activeAction.species, cleanCap, gps.lat, gps.lng);
+                                                    const coordsStr = safeCoords(gps.lat, gps.lng);
+                                                    
+                                                    // Auditoria Silenciosa de GPS
+                                                    let auditGps = "GPS OK (ONLINE)";
+                                                    if (gps.lat && gps.lng) {
+                                                        if (activeAction.endereco && activeAction.endereco.match(/^-?[0-9.]+,\s*-?[0-9.]+$/)) {
+                                                            auditGps = "GPS OK (OFFLINE)";
+                                                        }
+                                                    } else {
+                                                        if (gps.status === 'denied' || gps.status === 'error') {
+                                                            auditGps = shift.gps_abertura ? "AUDITORIA: GPS DESATIVADO (FALLBACK ABERTURA)" : "AUDITORIA: GPS DESATIVADO (FALLBACK CENTRO PADRAO)";
+                                                        } else {
+                                                            auditGps = "AUDITORIA: SINAL GPS AUSENTE/LENTO (FALLBACK)";
+                                                        }
+                                                    }
+                                                    
+                                                    // Atualiza retroativamente o storagePath das fotos de Antes com o treeId gerado
+                                                    const updatedPhotosBefore = (activeAction.photosBefore || []).map((photo, i) => {
+                                                        if (!photo) return null;
+                                                        const fileExt = photo.storagePath.split('.').pop() || 'jpg';
+                                                        const newStoragePath = `${shift.journeyDate || 'SEM_DATA'}/${shift.placa || 'SEM_PLACA'}/ANTES_${i + 1}/${treeId}/${treeId}_ANTES_${i + 1}.${fileExt}`;
+                                                        return { ...photo, storagePath: newStoragePath };
+                                                    });
+
+                                                    const nowTime = Date.now();
+                                                    const newTree = {
+                                                        ...activeAction,
                                                         cap: cleanCap,
                                                         height: cleanHeight,
-                                                        treeId, 
-                                                        type: 'tree', 
+                                                        treeId,
+                                                        photosBefore: updatedPhotosBefore,
+                                                        type: 'tree',
+                                                        statusFila: 'executando',
+                                                        executionStartTime: nowTime,
+                                                        startTime: nowTime,
+                                                        totalPausedSeconds: 0,
                                                         endereco: activeAction.endereco || shift.bairro_local,
-                                                        executionStartTime: now, 
-                                                        formDurationSec: Math.floor((now - activeAction.startTime) / 1000), 
-                                                        desc: `${activeAction.species} [${activeAction.osId || (activeAction.pruningTypes?.[0] || 'MANEJO')}]`, 
-                                                        treeCoords: coordsStr, 
-                                                        pruningTypes: activeAction.pruningTypes || [] 
-                                                    }); 
-                                                    setView('active_service'); 
-                                                };
+                                                        desc: `${activeAction.species} [${activeAction.osId || (activeAction.pruningTypes?.[0] || 'MANEJO')}]`,
+                                                        treeCoords: coordsStr,
+                                                        gps_auditoria: auditGps,
+                                                        pruningTypes: activeAction.pruningTypes || []
+                                                    };
 
-                                                if (duplicate) {
-                                                    showConfirm('⚠️ Árvore já registada hoje!', `ID: ${treeId}\nEspécie: ${activeAction.species}\n\nO que deseja fazer?`, () => {
-                                                        const continuationState = { 
-                                                            ...activeAction, 
-                                                            ...duplicate, 
-                                                            photosBefore: activeAction.photosBefore?.length ? activeAction.photosBefore : duplicate.photosBefore, 
-                                                            isContinuation: true, 
-                                                            executionStartTime: now, 
-                                                            formDurationSec: (duplicate.formDurationSec || 0) + Math.floor((now - activeAction.startTime) / 1000), 
-                                                            treeCoords: coordsStr 
-                                                        };
-                                                        setLogs(logs.filter(l => l.treeId !== treeId));
-                                                        setActiveAction(continuationState); 
-                                                        setConfirmModal(null); 
-                                                        setView('active_service');
-                                                    }, () => { 
-                                                        setConfirmModal(null); 
-                                                        proceedWithNew(); 
-                                                    }, 'Continuar Anterior', 'É Outra Igual');
-                                                } else {
-                                                    proceedWithNew();
-                                                }
-                                            } catch (err) { alert("ERRO AO INICIAR: " + err.message); }
-                                        }} 
-                                        className="w-full py-6 rounded-[2.5rem] bg-slate-900 text-emerald-400 font-black uppercase text-lg shadow-2xl flex items-center justify-center gap-4 transition-all active:scale-95 disabled:grayscale disabled:opacity-50 border-b-4 border-emerald-600">
-                                        <i className="fas fa-play text-xl"></i>
-                                        Iniciar Manejo
-                                    </button>
+                                                    setPendingTrees(prev => [...prev, newTree]);
+                                                    
+                                                    // Redireciona automaticamente ao Dashboard limpando a ação ativa
+                                                    setActiveAction(null);
+                                                    setView('dashboard');
+                                                    
+                                                    // Rola a tela suavemente para baixo após um tempo mínimo de renderização do react
+                                                    setTimeout(() => {
+                                                        window.scrollTo({ top: document.body.scrollHeight || 2000, behavior: 'smooth' });
+                                                    }, 150);
+                                                } catch (err) { alert("ERRO AO ENFILEIRAR: " + err.message); }
+                                            }} 
+                                            className="w-full py-5 rounded-[2rem] bg-emerald-600 text-white font-black uppercase text-sm shadow-xl flex items-center justify-center gap-3 transition-all active:scale-95 disabled:grayscale disabled:opacity-50 border-b-4 border-emerald-700">
+                                            <i className="fas fa-plus text-sm"></i>
+                                            Cadastrar e Enfileirar Árvore
+                                        </button>
+                                    </div>
                                 )}
                             </div>
                         </div>
@@ -1717,13 +2251,43 @@
                 );
             }
 
+            
+
             if (view === 'active_service') {
                 if (!activeAction) { setTimeout(() => setView('dashboard'), 0); return null; }
                 const totalElapsed = elapsed - (activeAction.totalPausedSeconds || 0);
                 
                 return (
                     <div className="p-6 screen-fade flex flex-col min-h-screen no-scrollbar">
-                        <div className="text-center mt-6">
+                        {renderZoomModal()}
+                        {/* Botão de Minimizar para Execução Paralela */}
+                        <div className="flex justify-between items-center mb-4">
+                            <button 
+                                onClick={() => {
+                                    // Sincroniza fotos e progresso atual na fila antes de sair
+                                    if (activeAction.fromFilaIdx !== undefined) {
+                                        setPendingTrees(prev => {
+                                            const list = [...prev];
+                                            list[activeAction.fromFilaIdx] = {
+                                                ...list[activeAction.fromFilaIdx],
+                                                photosAfter: activeAction.photosAfter || []
+                                            };
+                                            return list;
+                                        });
+                                    }
+                                    setView('dashboard');
+                                    setActiveAction(null);
+                                }}
+                                className="px-4 py-2 bg-slate-100 text-slate-800 rounded-full text-xs font-black uppercase tracking-wider flex items-center gap-2 border-2 border-slate-200 active:scale-95 transition-all shadow-sm"
+                            >
+                                <i className="fas fa-chevron-left text-[10px]"></i> Minimizar e Voltar
+                            </button>
+                            <span className="bg-emerald-500/10 text-emerald-600 border border-emerald-200/50 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest animate-pulse">
+                                Executando
+                            </span>
+                        </div>
+                        
+                        <div className="text-center mt-2">
                             <span className="bg-audit-600 text-white px-5 py-1.5 rounded-full text-[10px] font-black uppercase">Em Curso</span>
                             <h2 className="text-xl font-black text-slate-800 uppercase mt-5 leading-tight">{activeAction.desc}</h2>
                             <p className="text-xs text-slate-400 font-mono mt-2">ID: {activeAction.treeId}</p>
@@ -1736,12 +2300,73 @@
                         </div>
                         
                         <div className="mt-auto space-y-4 pb-8">
-                            <button onClick={() => setView('pause_during_tree')} className="w-full bg-amber-500 text-black py-5 rounded-3xl font-black text-lg shadow-xl flex items-center justify-center gap-3">
-                                <i className="fas fa-pause"></i> Interromper Manejo
-                            </button>
+                            {/* Comparativo Visual do Antes para Evitar Confusão de Árvore */}
+                            {activeAction.photosBefore && activeAction.photosBefore.length > 0 && (
+                                <Card className="border-2 border-slate-200 shadow-sm bg-white rounded-3xl p-4">
+                                    <div className="flex items-center gap-2 mb-3">
+                                        <i className="fas fa-eye text-audit-600 text-xs"></i>
+                                        <Label className="!mb-0 uppercase text-[10px] font-black text-slate-800 tracking-wider">Visualização do Antes (Guia Visual)</Label>
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-2">
+                                        {activeAction.photosBefore.map((p, i) => p && (
+                                            <div key={i} className="aspect-square rounded-2xl overflow-hidden border border-slate-100 shadow-inner relative">
+                                                <img 
+                                                    src={p.localPreview || p.base64} 
+                                                    className="w-full h-full object-cover" 
+                                                    alt={`Antes ${i + 1}`}
+                                                    onClick={() => setZoomPhoto(p.localPreview || p.base64)}
+                                                />
+                                                <span className="absolute bottom-1 right-1 bg-black/60 text-white text-[8px] px-1 rounded font-bold">Antes {i + 1}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </Card>
+                            )}
+
+                            {/* Botões de Ação de Execução Paralela */}
+                            <div className="flex justify-center w-full">
+                                <button 
+                                    onClick={() => setView('pause_during_tree')} 
+                                    className="w-full bg-amber-500 text-slate-900 py-5 rounded-[1.8rem] border-b-4 border-amber-600 font-black text-sm uppercase shadow-xl flex items-center justify-center gap-2 active:scale-95 transition-all"
+                                >
+                                    <i className="fas fa-pause text-xs"></i> Interromper Poda
+                                </button>
+                            </div>
                             
                             <Card className="border-2 border-audit-900 shadow-xl">
                                 <Label required>3 Fotos de Depois</Label>
+                                <div className="mb-4">
+                                    <label className="w-full py-5 rounded-2xl bg-white hover:bg-slate-50 active:scale-[0.98] transition-all text-slate-800 border-2 border-dashed border-slate-300 flex items-center justify-center gap-3 cursor-pointer text-xs font-black uppercase shadow-lg">
+                                        <i className="fas fa-camera text-base text-emerald-600"></i>
+                                        (Bater ou adicionar 3 fotos de uma vez)
+                                        <input 
+                                            type="file" 
+                                            accept="image/*" 
+                                            multiple 
+                                            className="hidden" 
+                                            onChange={async e => {
+                                                const files = Array.from(e.target.files);
+                                                if (files.length === 0) return;
+                                                if (files.length !== 3) {
+                                                    alert("⚠️ SELEÇÃO INCORRETA!\n\nVocê deve escolher EXATAMENTE 3 fotos da galeria (nem mais, nem menos) para atender às exigências de faturamento do contrato.");
+                                                    e.target.value = ""; // Reseta o input
+                                                    return;
+                                                }
+                                                
+                                                const list = [...(activeAction.photosAfter || [])];
+                                                for (let i = 0; i < files.length; i++) {
+                                                    const processed = await processPhoto(files[i], `DEPOIS_${i + 1}`);
+                                                    list[i] = processed;
+                                                }
+                                                setActiveAction(prev => ({ ...prev, photosAfter: list }));
+                                            }}
+                                        />
+                                    </label>
+                                    <p className="text-[9px] font-bold text-slate-500 uppercase text-center mt-2 tracking-wider">
+                                        💡 Dica: As fotos podem ser tiradas com a câmera ou inseridas da galeria em sequência.
+                                    </p>
+                                </div>
+
                                 <div className="grid grid-cols-3 gap-2 mb-2">
                                     {[0, 1, 2].map(i => (
                                         <PhotoUpload 
@@ -1778,10 +2403,24 @@
                                             lat: coordsStr ? safeFloat(coordsStr.split(',')[0]) : null, 
                                             lng: coordsStr ? safeFloat(coordsStr.split(',')[1]) : null, 
                                             status: 'OK', 
+                                            gps_auditoria: activeAction.gps_auditoria || (
+                                                gps.lat && gps.lng ? (
+                                                    activeAction.endereco && activeAction.endereco.match(/^-?[0-9.]+,\s*-?[0-9.]+$/) ? "GPS OK (OFFLINE)" : "GPS OK (ONLINE)"
+                                                ) : (
+                                                    gps.status === 'denied' || gps.status === 'error' ? (
+                                                        shift.gps_abertura ? "AUDITORIA: GPS DESATIVADO (FALLBACK ABERTURA)" : "AUDITORIA: GPS DESATIVADO (FALLBACK CENTRO PADRAO)"
+                                                    ) : "AUDITORIA: SINAL GPS AUSENTE/LENTO (FALLBACK)"
+                                                )
+                                            ), 
                                             timestamp: new Date().toISOString() 
                                         };
                                         
                                         safeAddLog(log);
+                                        
+                                        // Remove da fila de pendentes se veio dela
+                                        if (activeAction.fromFilaIdx !== undefined) {
+                                            setPendingTrees(prev => prev.filter((_, i) => i !== activeAction.fromFilaIdx));
+                                        }
                                         
                                         setActiveAction(null); 
                                         setView('dashboard');
@@ -1851,20 +2490,11 @@
                                     </div>
                                 )}
                             </Card>
-
-                            <Card className="bg-white border-2 border-slate-100 shadow-xl overflow-hidden relative min-h-[240px] flex flex-col justify-center">
-                                <PhotoUpload 
-                                    label="CAPTURAR EVIDÊNCIA DA PARADA" 
-                                    onCapture={async f => setActiveAction({ ...activeAction, tempPausePhoto: await processPhoto(f, 'PAUSA') })} 
-                                    preview={activeAction?.tempPausePhoto} 
-                                    fullWidth
-                                />
-                            </Card>
                         </div>
 
                         <div className="pt-8 pb-4">
                             <button 
-                                disabled={!activeAction?.tempPauseReason || !activeAction?.tempPausePhoto || (isOther && !activeAction.customPauseReason)} 
+                                disabled={!activeAction?.tempPauseReason || (isOther && !activeAction.customPauseReason)} 
                                 onClick={() => {
                                     const now = Date.now(); 
                                     const pauseCoords = safeCoords(gps.lat, gps.lng);
@@ -2182,7 +2812,7 @@
                                             return 'MANEJO DE ÁRVORE';
                                         };
 
-                                        const csvHeader = ["#","ID_ARVORE_SISTEMA","DATA","OPERADOR","PLACA","TIPO","PROTOCOLO","NOME_VULGAR","NOME_CIENTIFICO","CAP_CM","ALTURA_M","TIPO_INTERVENCAO","STATUS","INICIO","FIM","DUR_TOTAL","T_MANEJO","T_RELATORIO","T_PAUSADO","LATITUDE","LONGITUDE","ENDEREÇO","MOTIVO_PAUSA","OBS_IMPEDIMENTO","OBS_GERAL"].join(";") + "\n";
+                                        const csvHeader = ["#","ID_ARVORE_SISTEMA","DATA","OPERADOR","PLACA","TIPO","PROTOCOLO","NOME_VULGAR","NOME_CIENTIFICO","CAP_CM","ALTURA_M","TIPO_INTERVENCAO","STATUS","INICIO","FIM","DUR_TOTAL","T_MANEJO","T_RELATORIO","T_PAUSADO","LATITUDE","LONGITUDE","ENDEREÇO","MOTIVO_PAUSA","OBS_IMPEDIMENTO","OBS_GERAL","AUDITORIA_GPS"].join(";") + "\n";
                                         const csvRows = exportLogs.map((l, idx) => {
                                             const c = parseCoords(l.coords);
                                             const enderecoLog = l.endereco || l.location_name || exportShift.bairro_local || 'N/A';
@@ -2216,7 +2846,8 @@
                                                 enderecoLog,
                                                 motivoPausa,
                                                 obsImpedimento,
-                                                l.problemReport || l.desc || ''
+                                                l.problemReport || l.desc || '',
+                                                l.gps_auditoria || 'N/A'
                                             ].join(";");
                                         }).join("\n");
                                         const fullCsvContent = csvHeader + csvRows;
@@ -2269,7 +2900,7 @@
                                                 const wb = XLSX.utils.book_new();
 
                                                 // ── ABA 1: ATIVIDADES DE CAMPO ──────────────────────────────
-                                                const colsAtiv = ["#","ID ÁRVORE (SISTEMA)","DATA","OPERADOR","PLACA","TIPO","PROTOCOLO / OS","NOME VULGAR","NOME CIENTÍFICO","CAP (cm)","ALTURA (m)","TIPO DE INTERVENÇÃO","STATUS","INÍCIO","FIM","HM TOTAL","HM MANEJO","HM SISTEMA","HM PAUSA","LATITUDE","LONGITUDE","ENDEREÇO","MOTIVO DA PAUSA","DESCRIÇÃO DO IMPEDIMENTO","OBSERVAÇÕES GERAIS"];
+                                                const colsAtiv = ["#","ID ÁRVORE (SISTEMA)","DATA","OPERADOR","PLACA","TIPO","PROTOCOLO / OS","NOME VULGAR","NOME CIENTÍFICO","CAP (cm)","ALTURA (m)","TIPO DE INTERVENÇÃO","STATUS","INÍCIO","FIM","HM TOTAL","HM MANEJO","HM SISTEMA","HM PAUSA","LATITUDE","LONGITUDE","ENDEREÇO","MOTIVO DA PAUSA","DESCRIÇÃO DO IMPEDIMENTO","OBSERVAÇÕES GERAIS","AUDITORIA GPS"];
                                                 const rowsAtiv = exportLogs.map((l, idx) => {
                                                     const c = parseCoords(l.coords);
                                                     const speciesParts = (l.species || 'N/A').split('/');
@@ -2303,12 +2934,13 @@
                                                         enderecoLog,
                                                         motivoPausa,
                                                         obsImpedimento,
-                                                        l.problemReport || l.desc || ''
+                                                        l.problemReport || l.desc || '',
+                                                        l.gps_auditoria || 'N/A'
                                                     ];
                                                 });
                                                 const wsAtividades = XLSX.utils.aoa_to_sheet([colsAtiv, ...rowsAtiv]);
                                                 // Largura das colunas
-                                                wsAtividades['!cols'] = [6,22,10,18,10,8,14,22,22,8,8,30,12,8,8,10,10,10,10,12,12,30,25,30,30].map(w=>({wch:w}));
+                                                wsAtividades['!cols'] = [6,22,10,18,10,8,14,22,22,8,8,30,12,8,8,10,10,10,10,12,12,30,25,30,30,35].map(w=>({wch:w}));
                                                 XLSX.utils.book_append_sheet(wb, wsAtividades, "Atividades Campo");
 
                                                 // ── ABA 2: AUDITORIA DO TURNO ───────────────────────────────
