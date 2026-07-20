@@ -1733,4 +1733,1418 @@
                                                 className="w-full bg-transparent border-none p-0 focus:ring-0 font-black uppercase text-xs placeholder:text-slate-200" 
                                                 placeholder="AGUARDANDO SINAL DE GPS..." 
                                                 value={activeAction.endereco || ''} 
-                                                onChange={e => setAct
+                                                onChange={e => setActiveAction({ ...activeAction, endereco: e.target.value.toUpperCase() })} 
+                                            />
+                                            <button 
+                                                onClick={() => {
+                                                    if (!gps.lat || !gps.lng) { alert("GPS ainda buscando sinal!"); return; }
+                                                    setActiveAction({ ...activeAction, endereco: `${gps.lat}, ${gps.lng}` });
+                                                }}
+                                                className="w-10 h-10 bg-slate-200 rounded-xl flex items-center justify-center text-slate-600 active:scale-95"
+                                                title="Recapturar Coordenada Atual">
+                                                <i className="fas fa-arrows-rotate"></i>
+                                            </button>
+                                        </div>
+
+                                        {(gps.status === 'denied' || gps.status === 'error' || !gps.lat || !gps.lng) && (
+                                            <div className="bg-red-50 border-2 border-red-500 rounded-3xl p-5 mb-4 text-left animate-pulse shadow-lg">
+                                                <div className="flex items-start gap-3">
+                                                    <div className="w-8 h-8 rounded-full bg-red-600 text-white flex items-center justify-center flex-shrink-0 shadow-md">
+                                                        <i className="fas fa-triangle-exclamation text-sm"></i>
+                                                    </div>
+                                                    <div className="flex-1">
+                                                        <p className="text-[10px] font-black text-red-600 uppercase tracking-wider mb-1">
+                                                            ⚠️ ALERTA DE SEGURANÇA OPERACIONAL:
+                                                        </p>
+                                                        <p className="text-[9px] text-slate-800 leading-relaxed uppercase font-black">
+                                                            O GPS do aparelho foi desativado ou está sem sinal. O prontuário está gravando a coordenada de abertura do turno como fallback numérico obrigatório.
+                                                        </p>
+                                                        <p className="text-[9px] text-red-600 leading-relaxed uppercase font-black mt-1.5">
+                                                            A empresa corre o risco de GLOSA INTEGRAL DO MANEJO e DESCREDENCIAMENTO CONTRATUAL por parte da Prefeitura se for comprovada a desativação intencional do localizador! Mantenha a localização sempre ligada no celular.
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        <div className="flex items-center gap-2 mb-3">
+                                            <i className="fas fa-bolt-lightning text-[10px] text-amber-500"></i>
+                                            <Label required className="!mb-0">Intervenção na Rede COPEL?</Label>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            {['NÃO', 'SIM'].map(opt => (
+                                                <button 
+                                                    key={opt}
+                                                    onClick={() => setActiveAction({ ...activeAction, copelRequired: opt })}
+                                                    className={`py-3 rounded-[1.2rem] font-black text-[10px] uppercase border-2 transition-all ${activeAction.copelRequired === opt ? (opt === 'SIM' ? 'bg-amber-500 text-white border-amber-600' : 'bg-slate-900 text-white border-slate-900') : 'bg-white text-slate-300 border-slate-50'}`}>
+                                                    {opt === 'SIM' ? 'Sim (Solicitar)' : 'Não Necessário'}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            </Card>
+
+                            {/* 2. Serviços e Detalhes */}
+                            <Card gradient="bg-audit-600">
+                                <div className="flex items-center gap-3 mb-6">
+                                    <div className="w-10 h-10 bg-audit-50 rounded-xl flex items-center justify-center text-audit-600">
+                                        <i className="fas fa-gears text-sm"></i>
+                                    </div>
+                                    <Label required className="!mb-0">Serviços a Executar</Label>
+                                </div>
+                                
+                                <div className="space-y-3 mb-6">
+                                    {isCorteFixo && (
+                                        <div className="flex items-center gap-4 p-5 bg-red-50 border-2 border-red-200 rounded-[2rem] shadow-sm animate-pulse">
+                                            <div className="w-12 h-12 bg-red-600 rounded-2xl flex items-center justify-center text-white">
+                                                <i className="fas fa-skull text-xl"></i>
+                                            </div>
+                                            <div className="flex-1">
+                                                <p className="font-black text-red-900 uppercase text-xs">Corte Total</p>
+                                                <p className="text-[8px] font-bold text-red-600 uppercase">AÇÃO MANDATÓRIA PROTOCOLO</p>
+                                            </div>
+                                            <div className="w-8 h-8 bg-red-600 rounded-full flex items-center justify-center text-white">
+                                                <i className="fas fa-check text-xs"></i>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {isEmergencia && (
+                                        <div className="grid grid-cols-1 gap-3">
+                                            {[
+                                                { id: 'PODA EMERGENCIAL', label: 'Poda Emergencial', icon: 'fa-triangle-exclamation', color: 'amber' },
+                                                { id: 'CORTE EMERGENCIAL', label: 'Corte Emergencial', icon: 'fa-radiation', color: 'red' }
+                                            ].map(t => (
+                                                <button 
+                                                    key={t.id}
+                                                    onClick={() => setActiveAction({ ...activeAction, pruningTypes: [t.id] })}
+                                                    className={`p-5 rounded-[2rem] border-2 transition-all flex items-center gap-4 ${activeAction.pruningTypes?.includes(t.id) ? `bg-${t.color}-50 border-${t.color}-200` : 'bg-white border-slate-50'}`}>
+                                                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-lg ${activeAction.pruningTypes?.includes(t.id) ? `bg-${t.color}-600` : 'bg-slate-200'}`}>
+                                                        <i className={`fas ${t.icon} text-lg`}></i>
+                                                    </div>
+                                                    <div className="text-left flex-1">
+                                                        <p className={`font-black uppercase text-xs ${activeAction.pruningTypes?.includes(t.id) ? `text-${t.color}-900` : 'text-slate-400'}`}>{t.label}</p>
+                                                        <p className="text-[8px] font-bold text-slate-300 uppercase leading-none mt-1">Acionamento Prioritário</p>
+                                                    </div>
+                                                    <div className={`w-6 h-6 rounded-full flex items-center justify-center transition-all ${activeAction.pruningTypes?.includes(t.id) ? `bg-${t.color}-600 text-white` : 'text-transparent'}`}>
+                                                        <i className="fas fa-check text-[10px]"></i>
+                                                    </div>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    {isPodaRotina && (
+                                        <div className="grid grid-cols-1 gap-2">
+                                            {TIPOS_PODA_DATA.map(t => (
+                                                <button 
+                                                    key={t.id}
+                                                    onClick={() => { 
+                                                        const current = activeAction.pruningTypes || []; 
+                                                        setActiveAction({ ...activeAction, pruningTypes: current.includes(t.id) ? current.filter(x => x !== t.id) : [...current, t.id] }); 
+                                                    }}
+                                                    className={`p-4 rounded-[1.8rem] border-2 transition-all flex items-center gap-4 ${activeAction?.pruningTypes?.includes(t.id) ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-slate-50'}`}>
+                                                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${activeAction?.pruningTypes?.includes(t.id) ? 'bg-audit-600 text-white' : 'bg-slate-50 text-slate-200'}`}>
+                                                        <i className="fas fa-leaf text-sm"></i>
+                                                    </div>
+                                                    <span className={`flex-1 text-[11px] font-black uppercase text-left ${activeAction?.pruningTypes?.includes(t.id) ? 'text-audit-900' : 'text-slate-400'}`}>{t.label}</span>
+                                                    <div className={`w-5 h-5 rounded-full flex items-center justify-center border-2 transition-all ${activeAction?.pruningTypes?.includes(t.id) ? 'bg-audit-600 border-audit-600 text-white scale-110' : 'border-slate-100 text-transparent'}`}>
+                                                        <i className="fas fa-check text-[8px]"></i>
+                                                    </div>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="space-y-4">
+                                    <div className="bg-slate-50 p-6 rounded-[2rem] border-2 border-slate-100 shadow-inner">
+                                        <div className="flex items-center gap-2 mb-4">
+                                            <i className="fas fa-tag text-[10px] text-slate-400"></i>
+                                            <Label required className="!mb-0 uppercase tracking-widest text-[10px]">Informe o Nome Comum da Árvore (Espécie)</Label>
+                                        </div>
+                                        <input 
+                                            list="especies" 
+                                            className="w-full bg-transparent border-none p-0 focus:ring-0 font-black uppercase text-xl placeholder:text-slate-200 focus:outline-none" 
+                                            placeholder="DIGITE INICIAIS DA LETRA..." 
+                                            value={activeAction.species || ''} 
+                                            onChange={e => setActiveAction({ ...activeAction, species: e.target.value.toUpperCase() })} 
+                                        />
+                                        <datalist id="especies">
+                                            <option value="NÃO IDENTIFICADA">⚠️ NÃO IDENTIFICADA / DESCONHECIDA</option>
+                                            {LISTA_ESPECIES.map(s => <option key={s} value={s.toUpperCase()} />)}
+                                        </datalist>
+                                        {activeAction.species && !LISTA_ESPECIES.map(s => s.toUpperCase()).includes(activeAction.species.toUpperCase()) && activeAction.species !== 'NÃO IDENTIFICADA' && (
+                                            <p className="text-[9px] text-red-600 font-black uppercase mt-1.5 animate-pulse">
+                                                ⚠️ Selecione uma espécie sugerida na lista de busca.
+                                            </p>
+                                        )}
+                                    </div>
+
+                                    {/* Seletor de Classe CAP Didático */}
+                                    <div className="bg-slate-50 p-6 rounded-[2.2rem] border-2 border-slate-100 shadow-inner">
+                                        <div className="flex items-center justify-between mb-4">
+                                            <div className="flex items-center gap-2">
+                                                <i className="fas fa-tree text-[10px] text-slate-400"></i>
+                                                <Label required className="!mb-0 uppercase tracking-widest text-[9px] text-slate-400">informe o tamanho aproximado da circunferência da árvore!</Label>
+                                            </div>
+                                            {activeAction.cap && (
+                                                <span className="text-[10px] font-black text-[#0D7A3F] bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-100">
+                                                    Classe Oficial: {activeAction.cap} cm
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div className="grid grid-cols-1 gap-2.5">
+                                            {[
+                                                { label: "Classe I (até 30 cm)", desc: "Tronco Fino (ex: Garrafa Pet)", val: "30" },
+                                                { label: "Classe II (31 a 60 cm)", desc: "Tronco Médio (ex: Prato de Jantar)", val: "60" },
+                                                { label: "Classe III (61 a 90 cm)", desc: "Tronco Grosso (ex: Bola de Futebol)", val: "90" },
+                                                { label: "Classe IV (91 a 120 cm)", desc: "Tronco Muito Grosso (ex: Balde Grande)", val: "120" },
+                                                { label: "Classe V (acima de 120 cm)", desc: "Tronco Gigante (ex: Tampa de Bueiro)", val: "150" }
+                                            ].map(cls => {
+                                                const isSel = activeAction.cap === cls.val;
+                                                return (
+                                                    <button
+                                                        key={cls.val}
+                                                        type="button"
+                                                        onClick={() => setActiveAction({ ...activeAction, cap: cls.val })}
+                                                        className={`w-full py-3.5 px-5 rounded-2xl font-black uppercase text-left transition-all flex flex-col justify-center border-2 active:scale-[0.98] ${
+                                                            isSel 
+                                                                ? "bg-[#0D7A3F] text-white border-[#0D7A3F] shadow-lg shadow-[#0D7A3F]/20" 
+                                                                : "bg-white text-slate-700 border-slate-100 hover:bg-slate-50"
+                                                        }`}
+                                                    >
+                                                        <div className="flex items-center justify-between w-full">
+                                                            <span className="text-xs font-black">{cls.label}</span>
+                                                            {isSel && <i className="fas fa-check-circle text-emerald-400 text-sm"></i>}
+                                                        </div>
+                                                        <span className={`text-[8px] font-bold mt-0.5 ${isSel ? 'text-emerald-100' : 'text-slate-400'}`}>{cls.desc}</span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+
+                                    {/* Seletor de Classe de Altura Didático */}
+                                    <div className="bg-slate-50 p-6 rounded-[2.2rem] border-2 border-slate-100 shadow-inner">
+                                        <div className="flex items-center justify-between mb-4">
+                                            <div className="flex items-center gap-2">
+                                                <i className="fas fa-ruler-vertical text-[10px] text-slate-400"></i>
+                                                <Label required className="!mb-0 uppercase tracking-widest text-[9px] text-slate-400">informe a Altura Estimada da Árvore</Label>
+                                            </div>
+                                            {activeAction.height && (
+                                                <span className="text-[10px] font-black text-[#0D7A3F] bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-100">
+                                                    Classe Oficial: {activeAction.height} metros
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div className="grid grid-cols-1 gap-2.5">
+                                            {[
+                                                { label: "Classe I (até 6 metros)", desc: "Árvore Baixa (ex: Poste de Iluminação Pública)", val: "6" },
+                                                { label: "Classe II (6 a 12 metros)", desc: "Árvore Média (ex: Prédio de 2 Andares)", val: "12" },
+                                                { label: "Classe III (12 a 18 metros)", desc: "Árvore Alta (ex: Prédio de 4 Andares)", val: "18" },
+                                                { label: "Classe IV (acima de 18 metros)", desc: "Árvore Gigante (Copa Alta / Florestal)", val: "20" }
+                                            ].map(cls => {
+                                                const isSel = activeAction.height === cls.val;
+                                                return (
+                                                    <button
+                                                        key={cls.val}
+                                                        type="button"
+                                                        onClick={() => setActiveAction({ ...activeAction, height: cls.val })}
+                                                        className={`w-full py-3.5 px-5 rounded-2xl font-black uppercase text-left transition-all flex flex-col justify-center border-2 active:scale-[0.98] ${
+                                                            isSel 
+                                                                ? "bg-[#0D7A3F] text-white border-[#0D7A3F] shadow-lg shadow-[#0D7A3F]/20" 
+                                                                : "bg-white text-slate-700 border-slate-100 hover:bg-slate-50"
+                                                        }`}
+                                                    >
+                                                        <div className="flex items-center justify-between w-full">
+                                                            <span className="text-xs font-black">{cls.label}</span>
+                                                            {isSel && <i className="fas fa-check-circle text-emerald-400 text-sm"></i>}
+                                                        </div>
+                                                        <span className={`text-[8px] font-bold mt-0.5 ${isSel ? 'text-emerald-100' : 'text-slate-400'}`}>{cls.desc}</span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+                            </Card>
+
+                            {/* 3. Impedimento */}
+                            <div 
+                                onClick={() => setActiveAction({ ...activeAction, status: activeAction.status === 'IMPEDIDO' ? 'OK' : 'IMPEDIDO' })}
+                                className={`p-6 rounded-[2.5rem] border-2 transition-all cursor-pointer group shadow-sm flex items-center gap-5 ${activeAction.status === 'IMPEDIDO' ? 'bg-red-600 border-red-700 text-white shadow-red-200' : 'bg-white border-slate-50 hover:border-red-100'}`}>
+                                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all shadow-md ${activeAction.status === 'IMPEDIDO' ? 'bg-white text-red-600 scale-110 animate-pulse' : 'bg-red-50 text-red-500'}`}>
+                                    <i className="fas fa-hand text-lg"></i>
+                                </div>
+                                <div className="flex-1">
+                                    <span className={`text-xs font-black uppercase leading-tight block ${activeAction.status === 'IMPEDIDO' ? 'text-white' : 'text-slate-600'}`}>
+                                        Relatar Impedimento Técnico
+                                    </span>
+                                    <span className={`text-[8px] font-bold uppercase block mt-1 ${activeAction.status === 'IMPEDIDO' ? 'text-red-100' : 'text-slate-300'}`}>
+                                        Clique para sinalizar interrupção
+                                    </span>
+                                </div>
+                                <div className={`w-12 h-6 rounded-full p-1 transition-colors relative ${activeAction.status === 'IMPEDIDO' ? 'bg-red-800' : 'bg-slate-100'}`}>
+                                    <div className={`w-4 h-4 bg-white rounded-full transition-transform duration-300 shadow-sm ${activeAction.status === 'IMPEDIDO' ? 'translate-x-6' : 'translate-x-0'}`}></div>
+                                </div>
+                            </div>
+
+                            {activeAction.status === 'IMPEDIDO' && (
+                                <div className="space-y-4 animate-in fade-in slide-in-from-top-4 duration-500">
+                                    <div className="bg-red-50 p-6 rounded-[2rem] border-2 border-red-200 shadow-inner">
+                                        <Label required className="text-red-900 uppercase text-[10px] tracking-widest">Motivo da Paralisação</Label>
+                                        <textarea 
+                                            className="w-full bg-transparent border-none p-0 focus:ring-0 font-black uppercase text-sm placeholder:text-red-200 mt-2" 
+                                            placeholder="DESCREVA DETALHADAMENTE O PROBLEMA..." 
+                                            rows="4" 
+                                            value={activeAction.problemReport || ''} 
+                                            onChange={e => setActiveAction({ ...activeAction, problemReport: e.target.value.toUpperCase() })} 
+                                        />
+                                    </div>
+                                    <div className="bg-white p-6 rounded-[2rem] border-2 border-red-100 shadow-xl">
+                                        <div className="flex items-center gap-3 mb-4">
+                                            <div className="w-8 h-8 bg-red-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-red-200">
+                                                <i className="fas fa-camera text-xs"></i>
+                                            </div>
+                                            <Label required className="!mb-0 uppercase text-[10px] tracking-widest text-red-900">Evidência Fotográfica</Label>
+                                        </div>
+                                        <PhotoUpload 
+                                            label="CAPTURAR PROBLEMA" 
+                                            preview={activeAction.photoProblem} 
+                                            fullWidth
+                                            onCapture={async f => setActiveAction({ ...activeAction, photoProblem: await processPhoto(f, 'IMPEDIMENTO') })} 
+                                        />
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* 4. Fotos (Antes/Depois) */}
+                            {activeAction.status !== 'IMPEDIDO' && (
+                                <Card gradient="bg-audit-700">
+                                    <div className="flex items-center gap-3 mb-8">
+                                        <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-audit-600 shadow-md">
+                                            <i className="fas fa-images text-sm"></i>
+                                        </div>
+                                        <div>
+                                            <Label required className="!mb-0 !text-white text-xs">Evidências: ANTES DA EXECUÇÃO</Label>
+                                            <p className="text-[8px] font-bold text-audit-200 uppercase tracking-widest">Mínimo 3 fotos obrigatórias</p>
+                                        </div>
+                                    </div>
+                                    <div className="mb-4">
+                                        <label className="w-full py-5 rounded-2xl bg-white hover:bg-slate-50 active:scale-[0.98] transition-all text-slate-800 border-2 border-dashed border-slate-300 flex items-center justify-center gap-3 cursor-pointer text-xs font-black uppercase shadow-lg">
+                                            <i className="fas fa-camera text-base text-emerald-600"></i>
+                                            (Bater ou adicionar 3 fotos de uma vez)
+                                            <input 
+                                                type="file" 
+                                                accept="image/*" 
+                                                multiple 
+                                                className="hidden" 
+                                                onChange={async e => {
+                                                    const files = Array.from(e.target.files);
+                                                    if (files.length === 0) return;
+                                                    if (files.length !== 3) {
+                                                        alert("⚠️ SELEÇÃO INCORRETA!\n\nVocê deve escolher EXATAMENTE 3 fotos da galeria (nem mais, nem menos) para atender às exigências de fiscalização do contrato.");
+                                                        e.target.value = ""; // Reseta o input
+                                                        return;
+                                                    }
+                                                    
+                                                    const list = [...(activeAction.photosBefore || [])];
+                                                    for (let i = 0; i < files.length; i++) {
+                                                        const processed = await processPhoto(files[i], `ANTES_${i + 1}`);
+                                                        list[i] = processed;
+                                                    }
+                                                    setActiveAction(prev => ({ ...prev, photosBefore: list }));
+                                                }}
+                                            />
+                                        </label>
+                                        <p className="text-[9px] font-bold text-white/95 uppercase text-center mt-2 tracking-wider">
+                                            💡 Dica: As fotos podem ser tiradas com a câmera ou inseridas da galeria em sequência.
+                                        </p>
+                                    </div>
+
+                                    <div className="grid grid-cols-3 gap-3">
+                                        {[0, 1, 2].map(i => (
+                                            <div key={i} className="group relative">
+                                                <div className={`absolute -top-2 -right-2 w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black z-20 shadow-lg border-2 ${activeAction.photosBefore?.[i] ? 'bg-emerald-500 border-white text-white' : 'bg-slate-100 border-slate-50 text-slate-300'}`}>
+                                                    {i + 1}
+                                                </div>
+                                                <PhotoUpload 
+                                                    label={`FOTO ${i + 1}`} 
+                                                    preview={activeAction.photosBefore?.[i]} 
+                                                    onCapture={async f => { 
+                                                        const processed = await processPhoto(f, `ANTES_${i + 1}`); 
+                                                        setActiveAction(prev => { 
+                                                            const list = [...(prev.photosBefore || [])]; 
+                                                            list[i] = processed; 
+                                                            return { ...prev, photosBefore: list }; 
+                                                        }); 
+                                                    }} 
+                                                />
+                                            </div>
+                                        ))}
+                                    </div>
+                                </Card>
+                            )}
+
+                            {/* Botão de Finalização / Ação Principal */}
+                            <div className="pt-8">
+                                {activeAction.status === 'IMPEDIDO' ? (
+                                    <button 
+                                        disabled={!activeAction.species || !activeAction.problemReport || !activeAction.photoProblem} 
+                                        onClick={async () => {
+                                            const cleanCap = parseCommaFloat(activeAction.cap) || 0;
+                                            const treeId = generateTreeId(activeAction.species, cleanCap, gps.lat, gps.lng);
+                                            const coordsStr = safeCoords(gps.lat, gps.lng);
+                                            const now = Date.now();
+                                            
+                                            // Auditoria Silenciosa de GPS
+                                            let auditGps = "GPS OK (ONLINE)";
+                                            if (gps.lat && gps.lng) {
+                                                if (activeAction.endereco && activeAction.endereco.match(/^-?[0-9.]+,\s*-?[0-9.]+$/)) {
+                                                    auditGps = "GPS OK (OFFLINE)";
+                                                }
+                                            } else {
+                                                if (gps.status === 'denied' || gps.status === 'error') {
+                                                    auditGps = shift.gps_abertura ? "AUDITORIA: GPS DESATIVADO (FALLBACK ABERTURA)" : "AUDITORIA: GPS DESATIVADO (FALLBACK CENTRO PADRAO)";
+                                                } else {
+                                                    auditGps = "AUDITORIA: SINAL GPS AUSENTE/LENTO (FALLBACK)";
+                                                }
+                                            }
+                                            
+                                            // Converte o endereço com fallback se GPS desativado/offline no impedimento
+                                            const finalEndereco = activeAction.endereco || shift.gps_abertura || '-24.4124, -53.5125';
+                                            
+                                            // Atualiza retroativamente o storagePath da foto de impedimento com o treeId gerado
+                                            const updatedPhotoProblem = activeAction.photoProblem ? {
+                                                ...activeAction.photoProblem,
+                                                storagePath: `${shift.journeyDate || 'SEM_DATA'}/${shift.placa || 'SEM_PLACA'}/IMPEDIMENTO/${treeId}/${treeId}_IMPEDIMENTO.${activeAction.photoProblem.storagePath.split('.').pop() || 'jpg'}`
+                                            } : null;
+
+                                            const log = { 
+                                                ...activeAction, 
+                                                treeId, 
+                                                photoProblem: updatedPhotoProblem,
+                                                type: 'tree', 
+                                                executionStartTime: now, 
+                                                executionDurationSec: 0, 
+                                                effectiveDurationSec: 0, 
+                                                durationSec: 0, 
+                                                formDurationSec: Math.floor((now - (activeAction.startTime || now)) / 1000), 
+                                                endTime: now, 
+                                                status: 'IMPEDIDO', 
+                                                coords: coordsStr, 
+                                                endereco: finalEndereco,
+                                                lat: safeFloat(gps.lat), 
+                                                lng: safeFloat(gps.lng), 
+                                                gps_auditoria: auditGps,
+                                                timestamp: new Date().toISOString() 
+                                            };
+                                            safeAddLog(log);
+                                         
+                                         // Remove da lista ativa
+                                         const newList = activeActions.filter((_, idx) => idx !== activeActionIndex);
+                                         setActiveActions(newList);
+                                         
+                                         if (newList.length > 0) {
+                                             setActiveAction(newList[0]);
+                                             setActiveActionIndex(0);
+                                             setView('active_service');
+                                         } else {
+                                             setActiveAction(null);
+                                             setActiveActionIndex(-1);
+                                             setView('dashboard');
+                                         }
+                                        }} 
+                                        className="w-full py-6 rounded-[2rem] bg-red-600 text-white font-black uppercase text-lg shadow-2xl flex items-center justify-center gap-4 transition-all active:scale-95 disabled:grayscale disabled:opacity-50 border-b-4 border-red-800">
+                                        <i className="fas fa-hand text-xl"></i>
+                                        Registrar Impedimento
+                                    </button>
+                                ) : (
+                                    <div className="flex flex-col gap-4">
+                                        <button 
+                                            disabled={
+                                                !activeAction.species || 
+                                                (!LISTA_ESPECIES.map(s => s.toUpperCase()).includes(activeAction.species.toUpperCase()) && activeAction.species !== 'NÃO IDENTIFICADA') ||
+                                                !activeAction.cap || 
+                                                !activeAction.height || 
+                                                (parseCommaFloat(activeAction.cap) < 1 || parseCommaFloat(activeAction.cap) > 500) || 
+                                                (parseCommaFloat(activeAction.height) < 0.5 || parseCommaFloat(activeAction.height) > 60) || 
+                                                (!activeAction.pruningTypes?.length && !isCorteFixo) || 
+                                                (isOsRequired && (!activeAction.osId || !activeAction.osId.match(/^[0-9]{1,5}\/[0-9]{4}$/))) || 
+                                                (activeAction.photosBefore?.filter(p => p).length < 3)
+                                            } 
+                                            onClick={() => {
+                                                if (parseCommaFloat(activeAction.cap) > 500) {
+                                                    alert("O CAP informado (" + activeAction.cap + "cm) é superior ao limite de segurança de 5 metros.");
+                                                    return;
+                                                }
+                                                try {
+                                                    const cleanCap = parseCommaFloat(activeAction.cap);
+                                                    const cleanHeight = parseCommaFloat(activeAction.height);
+                                                    const treeId = generateTreeId(activeAction.species, cleanCap, gps.lat, gps.lng);
+                                                    const coordsStr = safeCoords(gps.lat, gps.lng);
+                                                    
+                                                    // Auditoria Silenciosa de GPS
+                                                    let auditGps = "GPS OK (ONLINE)";
+                                                    if (gps.lat && gps.lng) {
+                                                        if (activeAction.endereco && activeAction.endereco.match(/^-?[0-9.]+,\s*-?[0-9.]+$/)) {
+                                                            auditGps = "GPS OK (OFFLINE)";
+                                                        }
+                                                    } else {
+                                                        if (gps.status === 'denied' || gps.status === 'error') {
+                                                            auditGps = shift.gps_abertura ? "AUDITORIA: GPS DESATIVADO (FALLBACK ABERTURA)" : "AUDITORIA: GPS DESATIVADO (FALLBACK CENTRO PADRAO)";
+                                                        } else {
+                                                            auditGps = "AUDITORIA: SINAL GPS AUSENTE/LENTO (FALLBACK)";
+                                                        }
+                                                    }
+                                                    
+                                                    // Atualiza retroativamente o storagePath das fotos de Antes com o treeId gerado
+                                                    const updatedPhotosBefore = (activeAction.photosBefore || []).map((photo, i) => {
+                                                        if (!photo) return null;
+                                                        const fileExt = photo.storagePath.split('.').pop() || 'jpg';
+                                                        const newStoragePath = `${shift.journeyDate || 'SEM_DATA'}/${shift.placa || 'SEM_PLACA'}/ANTES_${i + 1}/${treeId}/${treeId}_ANTES_${i + 1}.${fileExt}`;
+                                                        return { ...photo, storagePath: newStoragePath };
+                                                    });
+
+                                                    const nowTime = Date.now();
+                                                    const newTree = {
+                                                        ...activeAction,
+                                                        cap: cleanCap,
+                                                        height: cleanHeight,
+                                                        treeId,
+                                                        photosBefore: updatedPhotosBefore,
+                                                        type: 'tree',
+                                                        statusFila: 'executando',
+                                                        executionStartTime: nowTime,
+                                                        startTime: nowTime,
+                                                        totalPausedSeconds: 0,
+                                                        endereco: activeAction.endereco || shift.bairro_local,
+                                                        desc: `${activeAction.species} [${activeAction.osId || (activeAction.pruningTypes?.[0] || 'MANEJO')}]`,
+                                                        treeCoords: coordsStr,
+                                                        gps_auditoria: auditGps,
+                                                        pruningTypes: activeAction.pruningTypes || []
+                                                    };
+
+                                                    setPendingTrees(prev => [...prev, newTree]);
+                                                    
+                                                    // Redireciona automaticamente ao Dashboard limpando a ação ativa
+                                                    setActiveAction(null);
+                                                    setView('dashboard');
+                                                    
+                                                    // Rola a tela suavemente para baixo após um tempo mínimo de renderização do react
+                                                    setTimeout(() => {
+                                                        window.scrollTo({ top: document.body.scrollHeight || 2000, behavior: 'smooth' });
+                                                    }, 150);
+                                                } catch (err) { alert("ERRO AO ENFILEIRAR: " + err.message); }
+                                            }} 
+                                            className="w-full py-5 rounded-[2rem] bg-emerald-600 text-white font-black uppercase text-sm shadow-xl flex items-center justify-center gap-3 transition-all active:scale-95 disabled:grayscale disabled:opacity-50 border-b-4 border-emerald-700">
+                                            <i className="fas fa-plus text-sm"></i>
+                                            Cadastrar e Enfileirar Árvore
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            
+
+            if (view === 'active_service') {
+                if (!activeAction) { setTimeout(() => setView('dashboard'), 0); return null; }
+                const totalElapsed = elapsed - (activeAction.totalPausedSeconds || 0);
+                
+                return (
+                    <div className="p-6 screen-fade flex flex-col min-h-screen no-scrollbar">
+                        {renderZoomModal()}
+                        {/* Botão de Minimizar para Execução Paralela */}
+                        <div className="flex justify-between items-center mb-4">
+                            <button 
+                                onClick={() => {
+                                    // Sincroniza fotos e progresso atual na fila antes de sair
+                                    if (activeAction.fromFilaIdx !== undefined) {
+                                        setPendingTrees(prev => {
+                                            const list = [...prev];
+                                            list[activeAction.fromFilaIdx] = {
+                                                ...list[activeAction.fromFilaIdx],
+                                                photosAfter: activeAction.photosAfter || []
+                                            };
+                                            return list;
+                                        });
+                                    }
+                                    setView('dashboard');
+                                    setActiveAction(null);
+                                }}
+                                className="px-4 py-2 bg-slate-100 text-slate-800 rounded-full text-xs font-black uppercase tracking-wider flex items-center gap-2 border-2 border-slate-200 active:scale-95 transition-all shadow-sm"
+                            >
+                                <i className="fas fa-chevron-left text-[10px]"></i> Minimizar e Voltar
+                            </button>
+                            <span className="bg-emerald-500/10 text-emerald-600 border border-emerald-200/50 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest animate-pulse">
+                                Executando
+                            </span>
+                        </div>
+                        
+                        <div className="text-center mt-2">
+                            <span className="bg-audit-600 text-white px-5 py-1.5 rounded-full text-[10px] font-black uppercase">Em Curso</span>
+                            <h2 className="text-xl font-black text-slate-800 uppercase mt-5 leading-tight">{activeAction.desc}</h2>
+                            <p className="text-xs text-slate-400 font-mono mt-2">ID: {activeAction.treeId}</p>
+                        </div>
+                        
+                        <div className="flex-1 flex flex-col justify-center items-center">
+                            <div className="text-7xl font-black text-slate-900 timer-glow leading-none font-mono tracking-tighter">
+                                {formatDuration(totalElapsed)}
+                            </div>
+                        </div>
+                        
+                        <div className="mt-auto space-y-4 pb-8">
+                            {/* Comparativo Visual do Antes para Evitar Confusão de Árvore */}
+                            {activeAction.photosBefore && activeAction.photosBefore.length > 0 && (
+                                <Card className="border-2 border-slate-200 shadow-sm bg-white rounded-3xl p-4">
+                                    <div className="flex items-center gap-2 mb-3">
+                                        <i className="fas fa-eye text-audit-600 text-xs"></i>
+                                        <Label className="!mb-0 uppercase text-[10px] font-black text-slate-800 tracking-wider">Visualização do Antes (Guia Visual)</Label>
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-2">
+                                        {activeAction.photosBefore.map((p, i) => p && (
+                                            <div key={i} className="aspect-square rounded-2xl overflow-hidden border border-slate-100 shadow-inner relative">
+                                                <img 
+                                                    src={p.localPreview || p.base64} 
+                                                    className="w-full h-full object-cover" 
+                                                    alt={`Antes ${i + 1}`}
+                                                    onClick={() => setZoomPhoto(p.localPreview || p.base64)}
+                                                />
+                                                <span className="absolute bottom-1 right-1 bg-black/60 text-white text-[8px] px-1 rounded font-bold">Antes {i + 1}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </Card>
+                            )}
+
+                            {/* Botões de Ação de Execução Paralela */}
+                            <div className="flex justify-center w-full">
+                                <button 
+                                    onClick={() => setView('pause_during_tree')} 
+                                    className="w-full bg-amber-500 text-slate-900 py-5 rounded-[1.8rem] border-b-4 border-amber-600 font-black text-sm uppercase shadow-xl flex items-center justify-center gap-2 active:scale-95 transition-all"
+                                >
+                                    <i className="fas fa-pause text-xs"></i> Interromper Poda
+                                </button>
+                            </div>
+                            
+                            <Card className="border-2 border-audit-900 shadow-xl">
+                                <Label required>3 Fotos de Depois</Label>
+                                <div className="mb-4">
+                                    <label className="w-full py-5 rounded-2xl bg-white hover:bg-slate-50 active:scale-[0.98] transition-all text-slate-800 border-2 border-dashed border-slate-300 flex items-center justify-center gap-3 cursor-pointer text-xs font-black uppercase shadow-lg">
+                                        <i className="fas fa-camera text-base text-emerald-600"></i>
+                                        (Bater ou adicionar 3 fotos de uma vez)
+                                        <input 
+                                            type="file" 
+                                            accept="image/*" 
+                                            multiple 
+                                            className="hidden" 
+                                            onChange={async e => {
+                                                const files = Array.from(e.target.files);
+                                                if (files.length === 0) return;
+                                                if (files.length !== 3) {
+                                                    alert("⚠️ SELEÇÃO INCORRETA!\n\nVocê deve escolher EXATAMENTE 3 fotos da galeria (nem mais, nem menos) para atender às exigências de faturamento do contrato.");
+                                                    e.target.value = ""; // Reseta o input
+                                                    return;
+                                                }
+                                                
+                                                const list = [...(activeAction.photosAfter || [])];
+                                                for (let i = 0; i < files.length; i++) {
+                                                    const processed = await processPhoto(files[i], `DEPOIS_${i + 1}`);
+                                                    list[i] = processed;
+                                                }
+                                                setActiveAction(prev => ({ ...prev, photosAfter: list }));
+                                            }}
+                                        />
+                                    </label>
+                                    <p className="text-[9px] font-bold text-slate-500 uppercase text-center mt-2 tracking-wider">
+                                        💡 Dica: As fotos podem ser tiradas com a câmera ou inseridas da galeria em sequência.
+                                    </p>
+                                </div>
+
+                                <div className="grid grid-cols-3 gap-2 mb-2">
+                                    {[0, 1, 2].map(i => (
+                                        <PhotoUpload 
+                                            key={i} 
+                                            label={`F${i + 1}`} 
+                                            preview={activeAction.photosAfter?.[i]} 
+                                            onCapture={async f => { 
+                                                const processed = await processPhoto(f, `DEPOIS_${i + 1}`); 
+                                                setActiveAction(prev => { 
+                                                    const list = [...(prev.photosAfter || [])]; 
+                                                    list[i] = processed; 
+                                                    return { ...prev, photosAfter: list }; 
+                                                }); 
+                                            }} 
+                                        />
+                                    ))}
+                                </div>
+                                
+                                <button 
+                                    disabled={(activeAction.photosAfter?.filter(p => p).length < 3)} 
+                                    onClick={async () => {
+                                        const now = Date.now();
+                                        const execDuration = Math.floor((now - activeAction.executionStartTime) / 1000);
+                                        const effectiveDuration = execDuration - (activeAction.totalPausedSeconds || 0);
+                                        const coordsStr = activeAction.treeCoords || safeCoords(gps.lat, gps.lng);
+                                        
+                                        const log = { 
+                                            ...activeAction, 
+                                            endTime: now, 
+                                            durationSec: Math.floor((now - activeAction.startTime) / 1000), 
+                                            executionDurationSec: execDuration, 
+                                            effectiveDurationSec: effectiveDuration, 
+                                            coords: coordsStr, 
+                                            lat: coordsStr ? safeFloat(coordsStr.split(',')[0]) : null, 
+                                            lng: coordsStr ? safeFloat(coordsStr.split(',')[1]) : null, 
+                                            status: 'OK', 
+                                            gps_auditoria: activeAction.gps_auditoria || (
+                                                gps.lat && gps.lng ? (
+                                                    activeAction.endereco && activeAction.endereco.match(/^-?[0-9.]+,\s*-?[0-9.]+$/) ? "GPS OK (OFFLINE)" : "GPS OK (ONLINE)"
+                                                ) : (
+                                                    gps.status === 'denied' || gps.status === 'error' ? (
+                                                        shift.gps_abertura ? "AUDITORIA: GPS DESATIVADO (FALLBACK ABERTURA)" : "AUDITORIA: GPS DESATIVADO (FALLBACK CENTRO PADRAO)"
+                                                    ) : "AUDITORIA: SINAL GPS AUSENTE/LENTO (FALLBACK)"
+                                                )
+                                            ), 
+                                            timestamp: new Date().toISOString() 
+                                        };
+                                        
+                                        safeAddLog(log);
+                                        
+                                        // Remove da fila de pendentes se veio dela
+                                        if (activeAction.fromFilaIdx !== undefined) {
+                                            setPendingTrees(prev => prev.filter((_, i) => i !== activeAction.fromFilaIdx));
+                                        }
+                                        
+                                        setActiveAction(null); 
+                                        setView('dashboard');
+                                    }} 
+                                    className="w-full mt-4 py-5 rounded-2xl bg-audit-900 text-white font-black uppercase shadow-xl disabled:opacity-50">
+                                    Finalizar e Salvar
+                                </button>
+                            </Card>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (view === 'global_pause_form' || view === 'pause_during_tree') {
+                const isOther = activeAction?.tempPauseReason === 'Outros';
+                
+                return (
+                    <div className="p-6 screen-fade no-scrollbar flex flex-col min-h-screen bg-slate-50">
+                        {/* Header Voltar */}
+                        <div className="flex items-center justify-between mb-8">
+                            <button 
+                                onClick={() => setView(activeAction?.type === 'tree' ? 'active_service' : 'dashboard')} 
+                                className="w-12 h-12 rounded-2xl bg-white shadow-sm flex items-center justify-center text-slate-400 hover:text-slate-600 transition-colors border border-slate-100">
+                                <i className="fas fa-arrow-left"></i>
+                            </button>
+                            <div className="text-right">
+                                <h2 className="text-xl font-black text-slate-800 uppercase tracking-tighter italic">Interrupção</h2>
+                                <p className="text-[10px] font-black text-amber-600 uppercase tracking-[0.2em]">Registro de Parada</p>
+                            </div>
+                        </div>
+
+                        <div className="space-y-6 flex-1">
+                            <Card gradient="bg-amber-500">
+                                <div className="flex items-center gap-4 py-2">
+                                    <div className="w-12 h-12 bg-white/30 rounded-2xl flex items-center justify-center text-slate-900 shadow-inner">
+                                        <i className="fas fa-pause text-xl"></i>
+                                    </div>
+                                    <div className="flex-1">
+                                        <p className="text-[11px] font-black text-slate-900 uppercase leading-tight">Motivação da Parada</p>
+                                        <p className="text-[8px] font-bold text-amber-900 uppercase tracking-widest mt-1">Sinalize o motivo real da interrupção</p>
+                                    </div>
+                                </div>
+                            </Card>
+
+                            <Card className="bg-white border-2 border-slate-100 shadow-xl p-8 rounded-[2.5rem]">
+                                <Label required className="uppercase text-[10px] tracking-widest text-slate-400 mb-4">Selecione o Motivo</Label>
+                                <div className="grid grid-cols-1 gap-3">
+                                    <select 
+                                        className="w-full bg-slate-50 border-2 border-slate-100 p-5 rounded-2xl font-black text-slate-700 uppercase appearance-none focus:ring-2 focus:ring-amber-500 transition-all text-sm" 
+                                        value={activeAction?.tempPauseReason || ''} 
+                                        onChange={e => setActiveAction({ ...activeAction, tempPauseReason: e.target.value })}>
+                                        <option value="">Selecione...</option>
+                                        {PAUSE_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+                                    </select>
+                                </div>
+
+                                {isOther && (
+                                    <div className="mt-6 animate-in fade-in slide-in-from-top-2 duration-300">
+                                        <Label required className="uppercase text-[10px] tracking-widest text-slate-400 mb-2">Descreva Detalhadamente</Label>
+                                        <textarea 
+                                            className="w-full bg-slate-50 border-2 border-slate-100 p-4 rounded-2xl font-black text-slate-700 uppercase focus:ring-2 focus:ring-amber-500 transition-all text-xs" 
+                                            rows="4" 
+                                            placeholder="MOTIVO DA PARADA..." 
+                                            value={activeAction.customPauseReason || ''} 
+                                            onChange={e => setActiveAction({ ...activeAction, customPauseReason: e.target.value.toUpperCase() })} 
+                                        />
+                                    </div>
+                                )}
+                            </Card>
+                        </div>
+
+                        <div className="pt-8 pb-4">
+                            <button 
+                                disabled={!activeAction?.tempPauseReason || (isOther && !activeAction.customPauseReason)} 
+                                onClick={() => {
+                                    const now = Date.now(); 
+                                    const pauseCoords = safeCoords(gps.lat, gps.lng);
+                                    setActiveAction({ 
+                                        ...activeAction, 
+                                        type: activeAction?.type || 'pause', 
+                                        isPaused: true, 
+                                        pauseStartTime: now, 
+                                        startTime: activeAction?.startTime || now, 
+                                        pauseCoords 
+                                    });
+                                    setPauseElapsed(0); 
+                                    setView('active_pause_screen');
+                                }} 
+                                className="w-full py-6 rounded-[2rem] bg-amber-500 text-slate-900 font-black text-xl uppercase shadow-2xl flex items-center justify-center gap-4 border-b-4 border-amber-700 active:scale-95 transition-all disabled:opacity-50 disabled:grayscale">
+                                <i className="fas fa-hand-pause text-xl"></i>
+                                Confirmar Pausa
+                            </button>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (view === 'active_pause_screen') {
+                return (
+                    <div className="p-6 screen-fade flex flex-col min-h-screen bg-slate-900 text-white no-scrollbar relative overflow-hidden">
+                        {/* Background Decals */}
+                        <div className="absolute top-[-10%] right-[-10%] w-64 h-64 bg-amber-500/10 rounded-full blur-3xl"></div>
+                        <div className="absolute bottom-[-10%] left-[-10%] w-96 h-96 bg-amber-500/5 rounded-full blur-3xl"></div>
+                        
+                        <div className="text-center mt-16 px-4 z-10">
+                            <div className="flex justify-center mb-6">
+                                <div className="w-16 h-16 rounded-full bg-amber-500 flex items-center justify-center text-slate-900 shadow-[0_0_30px_rgba(245,158,11,0.4)] animate-pulse">
+                                    <i className="fas fa-pause text-2xl"></i>
+                                </div>
+                            </div>
+                            <span className="bg-amber-500/20 text-amber-500 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-[0.2em] border border-amber-500/30">Operação Suspensa</span>
+                            <h2 className="text-3xl font-black uppercase mt-8 text-white tracking-tighter leading-tight drop-shadow-lg">
+                                {activeAction.tempPauseReason === 'Outros' ? activeAction.customPauseReason : activeAction.tempPauseReason}
+                            </h2>
+                        </div>
+
+                        <div className="flex-1 flex flex-col justify-center items-center z-10">
+                            <div className="text-8xl font-black text-amber-500 pause-glow font-mono tracking-tighter scale-110">
+                                {formatDuration(pauseElapsed)}
+                            </div>
+                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.3em] mt-8">Tempo Total de Interrupção</p>
+                        </div>
+
+                        <div className="mt-auto px-4 pb-12 z-10">
+                            <button 
+                                onClick={async () => {
+                                    const pDur = Math.floor((Date.now() - activeAction.pauseStartTime) / 1000);
+                                    const logCoords = activeAction.pauseCoords || safeCoords(gps.lat, gps.lng);
+                                    if (activeAction.type === 'pause') {
+                                        const log = { 
+                                            ...activeAction, 
+                                            endTime: Date.now(), 
+                                            durationSec: pDur, 
+                                            status: 'PAUSA', 
+                                            timestamp: new Date().toISOString(), 
+                                            coords: logCoords 
+                                        };
+                                        safeAddLog(log); 
+                                        
+                                        setActiveAction(null); 
+                                        setView('dashboard');
+                                    } else {
+                                        setActiveAction({ 
+                                            ...activeAction, 
+                                            isPaused: false, 
+                                            totalPausedSeconds: (activeAction.totalPausedSeconds || 0) + pDur 
+                                        });
+                                        setView('active_service');
+                                    }
+                                }} 
+                                className="w-full bg-emerald-500 text-slate-900 py-7 rounded-[2.5rem] font-black text-2xl uppercase shadow-[0_20px_40px_rgba(16,185,129,0.3)] border-b-4 border-emerald-700 active:scale-95 transition-all flex items-center justify-center gap-4">
+                                <i className="fas fa-play text-xl"></i>
+                                Retomar Operação
+                            </button>
+                            <p className="text-center text-[9px] font-bold text-slate-600 uppercase mt-8 tracking-widest">Sinalize o término da parada para retornar ao prontuário</p>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (view === 'disposal_form') {
+                const isStart = !activeDisposal || activeDisposal.step === 'start';
+                
+                return (
+                    <div className="p-6 screen-fade no-scrollbar flex flex-col min-h-screen bg-slate-50">
+                        {/* Header Voltar */}
+                        <div className="flex items-center justify-between mb-8">
+                            <button 
+                                onClick={() => setView('dashboard')} 
+                                className="w-12 h-12 rounded-2xl bg-white shadow-sm flex items-center justify-center text-slate-400 hover:text-slate-600 transition-colors border border-slate-100">
+                                <i className="fas fa-arrow-left"></i>
+                            </button>
+                            <div className="text-right">
+                                <h2 className="text-xl font-black text-slate-800 uppercase tracking-tighter italic">Destinação</h2>
+                                <p className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em]">{isStart ? 'Início de Carga' : 'Ponto de Descarte'}</p>
+                            </div>
+                        </div>
+
+                        <div className="space-y-6 flex-1 flex flex-col">
+                            <Card gradient="bg-blue-600">
+                                <div className="flex items-center gap-4 py-2">
+                                    <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center text-white shadow-inner">
+                                        <i className={`fas ${isStart ? 'fa-truck-loading' : 'fa-truck-ramp-box'} text-xl`}></i>
+                                    </div>
+                                    <div className="flex-1">
+                                        <p className="text-[11px] font-black text-white uppercase leading-tight">
+                                            {isStart ? 'Autorizar Início de Transporte' : 'Confirmar Descarregamento'}
+                                        </p>
+                                        <p className="text-[8px] font-bold text-blue-100 uppercase tracking-widest mt-1">
+                                            {isStart ? 'Registe a foto da carga preparada' : 'Registe a foto no local de destino'}
+                                        </p>
+                                    </div>
+                                </div>
+                                {!isStart && (
+                                    <div className="mt-6 pt-4 border-t border-white/10 flex justify-between items-center">
+                                        <span className="text-[8px] font-black text-blue-200 uppercase tracking-widest">Tempo de Percurso</span>
+                                        <span className="text-lg font-mono font-black text-white tracking-tighter">{formatDuration(disposalElapsed)}</span>
+                                    </div>
+                                )}
+                            </Card>
+
+                            <Card className="flex-1 min-h-[300px] flex flex-col justify-center bg-white border-2 border-slate-100 shadow-xl overflow-hidden relative">
+                                <div className="absolute top-4 left-4 z-10">
+                                    <span className="bg-slate-900 text-white px-3 py-1 rounded-full text-[9px] font-black uppercase shadow-lg">Captura Obrigatória</span>
+                                </div>
+                                <PhotoUpload 
+                                    label={isStart ? "FOTO INÍCIAL DA CARGA" : "FOTO FINAL DA DESTINAÇÃO"} 
+                                    preview={isStart ? activeDisposal?.photoBefore : activeDisposal?.photoAfter} 
+                                    fullWidth
+                                    onCapture={async f => { 
+                                        const type = isStart ? 'DEST_INICIO' : 'DEST_FIM';
+                                        const p = await processPhoto(f, type); 
+                                        if (isStart) {
+                                            setActiveDisposal({ step: 'start', photoBefore: p, type: 'disposal' }); 
+                                        } else {
+                                            setActiveDisposal({ ...activeDisposal, photoAfter: p }); 
+                                        }
+                                    }} 
+                                    className="!h-full !border-0 !rounded-0"
+                                />
+                            </Card>
+
+                            <div className="mt-auto pt-8 pb-4">
+                                {isStart ? (
+                                    <button 
+                                        disabled={!activeDisposal?.photoBefore} 
+                                        onClick={() => { 
+                                            setActiveDisposal({ ...activeDisposal, step: 'running', startTime: Date.now() }); 
+                                            setView('dashboard'); 
+                                        }} 
+                                        className="w-full py-6 rounded-[2rem] bg-blue-600 text-white font-black text-xl uppercase shadow-2xl flex items-center justify-center gap-4 border-b-4 border-blue-800 active:scale-95 transition-all disabled:opacity-50 disabled:grayscale">
+                                        <i className="fas fa-play text-xl"></i>
+                                        Iniciar Viagem
+                                    </button>
+                                ) : (
+                                    <button 
+                                        disabled={!activeDisposal?.photoAfter} 
+                                        onClick={async () => {
+                                            const now = Date.now(); 
+                                            const dispCoords = safeCoords(gps.lat, gps.lng);
+                                            const log = { 
+                                                ...activeDisposal, 
+                                                endTime: now, 
+                                                durationSec: Math.floor((now - activeDisposal.startTime) / 1000), 
+                                                coords: dispCoords, 
+                                                lat: safeFloat(gps.lat), 
+                                                lng: safeFloat(gps.lng), 
+                                                status: 'OK', 
+                                                timestamp: new Date().toISOString(), 
+                                                type: 'disposal' 
+                                            };
+                                            safeAddLog(log); 
+                                            
+                                            setActiveDisposal(null); 
+                                            setDisposalElapsed(0); 
+                                            setView('dashboard');
+                                        }} 
+                                        className="w-full py-6 rounded-[2.5rem] bg-slate-900 text-emerald-400 font-black text-xl uppercase shadow-2xl flex items-center justify-center gap-4 border-b-4 border-emerald-600 active:scale-95 transition-all disabled:opacity-50 disabled:grayscale">
+                                        <i className="fas fa-check-double text-xl"></i>
+                                        Encerrar Destinação
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (view === 'end_day') {
+                return (
+                    <div className="p-6 screen-fade text-center pb-20 no-scrollbar bg-slate-50 min-h-screen flex flex-col">
+                        <div className="mt-12 mb-8">
+                            <div className="w-24 h-24 bg-audit-600 rounded-[2.5rem] mx-auto flex items-center justify-center text-white shadow-[0_20px_40px_rgba(5,150,105,0.3)] rotate-3">
+                                <i className="fas fa-check-double text-4xl -rotate-3"></i>
+                            </div>
+                        </div>
+                        
+                        <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tighter italic mb-2">Resumo do Turno</h2>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mb-12">Expediente Encerrado com Sucesso</p>
+
+                        <div className="space-y-4 flex-1">
+                            <Card gradient="bg-slate-900">
+                                <div className="space-y-6 py-2">
+                                    <div className="flex justify-between items-end border-b border-white/5 pb-4">
+                                        <div className="text-left">
+                                            <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">Carga Horária Efetiva</p>
+                                            <p className="text-2xl font-mono font-black text-emerald-400 tracking-tighter">{formatDuration(stats.work)}</p>
+                                        </div>
+                                        <div className="w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center text-slate-400">
+                                            <i className="fas fa-stopwatch text-sm"></i>
+                                        </div>
+                                    </div>
+                                    <div className="flex justify-between items-end">
+                                        <div className="text-left">
+                                            <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">Jornada Total Registrada</p>
+                                            <p className="text-3xl font-mono font-black text-white tracking-tighter">{formatDuration(stats.journey)}</p>
+                                        </div>
+                                        <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center text-white">
+                                            <i className="fas fa-clock-rotate-left text-lg"></i>
+                                        </div>
+                                    </div>
+                                </div>
+                            </Card>
+
+                            <div className="grid grid-cols-3 gap-3">
+                                <div className="bg-white p-6 rounded-[2rem] border-2 border-slate-100 shadow-sm transition-all hover:scale-105">
+                                    <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-2">Total</p>
+                                    <p className="text-3xl font-black text-slate-900 leading-none tracking-tighter">{stats.totalTrees}</p>
+                                </div>
+                                <div className="bg-white p-6 rounded-[2rem] border-2 border-slate-100 shadow-sm transition-all hover:scale-105">
+                                    <p className="text-[7px] font-black text-emerald-600 uppercase tracking-widest mb-2">Podas</p>
+                                    <p className="text-3xl font-black text-emerald-600 leading-none tracking-tighter">{stats.treesPruned}</p>
+                                </div>
+                                <div className="bg-white p-6 rounded-[2rem] border-2 border-slate-100 shadow-sm transition-all hover:scale-105">
+                                    <p className="text-[7px] font-black text-red-600 uppercase tracking-widest mb-2">Cortes</p>
+                                    <p className="text-3xl font-black text-red-600 leading-none tracking-tighter">{stats.treesSuppressed}</p>
+                                </div>
+                            </div>
+
+                            <Card className="bg-white border-2 border-slate-100 p-6 flex items-center gap-4">
+                                <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-600">
+                                    <i className="fas fa-truck text-xl"></i>
+                                </div>
+                                <div className="text-left flex-1">
+                                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Cargas de Resíduos</p>
+                                    <p className="text-xl font-black text-slate-800">{stats.disposals} <span className="text-[10px] text-slate-300">Viagens Realizadas</span></p>
+                                </div>
+                            </Card>
+                        </div>
+
+                        <div className="mt-auto pt-10">
+                            <button 
+                                disabled={isExporting} 
+                                onClick={async () => {
+                                    setIsExporting(true);
+                                    try {
+                                        const exportLogs = [...logs];
+                                        const exportShift = { ...shift };
+                                        // Preenche 'rt' com o nome do Encarregado do checklist RH (rh_2)
+                                        // Isso garante identificação única da equipe no Gestor,
+                                        // mesmo quando o e-mail de sessão é igual em todos os celulares.
+                                        if (!exportShift.rt && exportShift.checklist?.rh_2) {
+                                            exportShift.rt = String(exportShift.checklist.rh_2).trim().toUpperCase();
+                                        }
+                                        const safePlaca = (exportShift?.placa || 'SEM_PLACA').replace(/[^a-zA-Z0-9]/g, '');
+                                        const journeyDate = (() => { 
+                                            if (!exportShift.journeyDate) return new Date().toISOString().split('T')[0]; 
+                                            const parts = exportShift.journeyDate.split('/'); 
+                                            if (parts.length === 3) return `${parts[2]}-${parts[1]}-${parts[0]}`; 
+                                            return new Date().toISOString().split('T')[0]; 
+                                        })();
+
+
+                                        
+                                        try {
+                                            const jsonBlob = new Blob([JSON.stringify({ shift: exportShift, logs: exportLogs }, null, 2)], { type: 'application/json' });
+                                            
+                                        } catch (err) {}
+
+                                        // ZIP
+                                        const zip = new JSZip();
+                                        if (!exportShift.dds_image_path && exportShift.foto_unificada?.storagePath) exportShift.dds_image_path = exportShift.foto_unificada.storagePath;
+                                        
+                                        // 1. Gerar os dados do Relatório (JSON)
+                                        const reportPayload = JSON.stringify({ shift: exportShift, logs: exportLogs });
+                                        
+                                        // 2. Gerar a Planilha de Atividades (CSV) - Movemos para cá para selar junto
+                                        const formatHMS = (seconds) => {
+                                            if (!seconds) return '00:00:00';
+                                            const h = Math.floor(seconds / 3600).toString().padStart(2, '0');
+                                            const m = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
+                                            const s = Math.floor(seconds % 60).toString().padStart(2, '0');
+                                            return `${h}:${m}:${s}`;
+                                        };
+                                        const parseCoords = (c) => {
+                                            if (!c) return ['N/A', 'N/A'];
+                                            const p = c.split(',');
+                                            if (p.length === 2) return [p[0].trim(), p[1].trim()];
+                                            return [c, ''];
+                                        };
+                                        const getDemandLabel = (log) => {
+                                            if (log.type === 'pause') return 'PAUSA OPERACIONAL';
+                                            if (log.type === 'disposal') return 'DESTINAÇÃO DE RESÍDUOS';
+                                            const source = log.demandSource;
+                                            if (source === 'manutencao') return 'PODA DE ROTINA';
+                                            if (source === 'os') return 'PODA COM PROTOCOLO';
+                                            if (source === 'emergencia') return 'SINISTRO / EMERGÊNCIA';
+                                            if (source === 'corte_protocolo') return 'CORTE COM PROTOCOLO';
+                                            return 'MANEJO DE ÁRVORE';
+                                        };
+
+                                        const csvHeader = ["#","ID_ARVORE_SISTEMA","DATA","OPERADOR","PLACA","TIPO","PROTOCOLO","NOME_VULGAR","NOME_CIENTIFICO","CAP_CM","ALTURA_M","TIPO_INTERVENCAO","STATUS","INICIO","FIM","DUR_TOTAL","T_MANEJO","T_RELATORIO","T_PAUSADO","LATITUDE","LONGITUDE","ENDEREÇO","MOTIVO_PAUSA","OBS_IMPEDIMENTO","OBS_GERAL","AUDITORIA_GPS"].join(";") + "\n";
+                                        const csvRows = exportLogs.map((l, idx) => {
+                                            const c = parseCoords(l.coords);
+                                            const enderecoLog = l.endereco || l.location_name || exportShift.bairro_local || 'N/A';
+                                            const speciesParts = (l.species || 'N/A').split('/');
+                                            const nomeVulgar     = speciesParts[0]?.trim() || l.species || 'N/A';
+                                            const nomeCientifico = speciesParts[1]?.trim() || '';
+                                            const motivoPausa    = l.type === 'pause' ? (l.tempPauseReason === 'Outros' ? (l.customPauseReason || l.pauseReason || 'N/A') : (l.pauseReason || l.tempPauseReason || 'N/A')) : '';
+                                            const obsImpedimento = (l.type === 'tree' && l.status === 'IMPEDIDO') ? (l.problemDesc || l.desc || 'N/A') : '';
+                                            const tipoIntervencao = l.type === 'tree' ? ((l.pruningTypes || []).join(" | ") || (l.status === 'IMPEDIDO' ? 'IMPEDIMENTO' : 'ROTINA')) : (l.type === 'pause' ? `PAUSA: ${motivoPausa}` : l.type?.toUpperCase() || 'N/A');
+                                            return [
+                                                idx + 1,
+                                                l.treeId || l.id || (l.type === 'tree' ? `ARV_${idx}` : `LOG_${idx}`),
+                                                exportShift.journeyDate,
+                                                exportShift.operador,
+                                                exportShift.placa,
+                                                getDemandLabel(l),
+                                                l.osId || 'ROTINA',
+                                                nomeVulgar,
+                                                nomeCientifico,
+                                                l.cap || '',
+                                                l.height || '',
+                                                tipoIntervencao,
+                                                l.status,
+                                                new Date(l.startTime).toLocaleTimeString(),
+                                                l.endTime ? new Date(l.endTime).toLocaleTimeString() : '',
+                                                formatHMS(l.durationSec),
+                                                formatHMS(l.effectiveDurationSec || l.executionDurationSec),
+                                                formatHMS(l.formDurationSec),
+                                                formatHMS(l.totalPausedSeconds),
+                                                c[0], c[1],
+                                                enderecoLog,
+                                                motivoPausa,
+                                                obsImpedimento,
+                                                l.problemReport || l.desc || '',
+                                                l.gps_auditoria || 'N/A'
+                                            ].join(";");
+                                        }).join("\n");
+                                        const fullCsvContent = csvHeader + csvRows;
+
+                                        // 3. Selagem Digital HMAC-SHA256 (JSON + CSV)
+                                        const digitalSeal = CryptoJS.HmacSHA256(reportPayload + "[SEP]" + fullCsvContent, "MCR_RAD_THYEGO_INTEGRITY_2025").toString();
+                                        
+                                        zip.file("RELATORIO.json", reportPayload);
+                                        zip.file("PLANILHA_ATIVIDADES.csv", "\ufeff" + fullCsvContent);
+                                        zip.file("CERTIFICADO_INTEGRIDADE.txt", 
+                                            `SISTEMA RAD PODA v21 - CERTIFICADO DE ORIGEM\n` +
+                                            `-------------------------------------------\n` +
+                                            `AUTOR DO SISTEMA: Eng. Florestal Thyêgo Nunes Alves Barreto\n` +
+                                            `CREA-PR PE-048841/D\n` +
+                                            `ID_INTEGRIDADE: ${digitalSeal}\n` +
+                                            `DATA_GERACAO: ${new Date().toLocaleString()}\n\n` +
+                                            `AVISO DE AUDITORIA:\n` +
+                                            `Este arquivo ZIP foi selado digitalmente no momento da exportação.\n` +
+                                            `Qualquer tentativa de alterar os arquivos JSON ou EXCEL (CSV) dentro deste pacote invalidará esta assinatura.\n` +
+                                            `Este certificado permite à Prefeitura verificar se houve fraude por parte da empresa contratada.`);
+
+                                        // Novo arquivo de detalhes do turno EXAUSTIVO para RAM
+                                        const stringsTurno = [
+                                            ["--- IDENTIFICAÇÃO GERAL ---", ""],
+                                            ["DATA", exportShift.journeyDate],
+                                            ["HORÁRIO ABERTURA", exportShift.journeyStartTime ? new Date(exportShift.journeyStartTime).toLocaleTimeString() : 'N/A'],
+                                            ["OPERADOR PRINCIPAL", exportShift.operador],
+                                            ["RESPONSÁVEL CONFERÊNCIA", exportShift.responsavel_empresa || 'N/A'],
+                                            ["LOCAL DA OPERAÇÃO", exportShift.bairro_local || 'N/A'],
+                                            ["MUNCK (PLACA)", exportShift.placa],
+                                            ["APOIO (PLACA)", exportShift.placaAux || 'N/A'],
+                                            ["GPS ABERTURA", exportShift.gps_abertura || 'N/A'],
+                                            ["--- EQUIPE OPERACIONAL (RH) ---", ""],
+                                            ...(CHECKLIST_RH.map(r => [r.cargo, exportShift.checklist?.[r.id] || 'NÃO INFORMADO'])),
+                                            ["--- DIÁLOGO DIÁRIO DE SEGURANÇA (DDS) ---", ""],
+                                            ["HORÁRIO DDS", exportShift.horario_dds || 'N/A'],
+                                            ...(CHECKLIST_DDS.map(d => [d.tema, exportShift.checklist?.[d.id] ? 'ABORDADO' : 'NÃO MARCADO'])),
+                                            ["--- CHECKLIST EQUIPAMENTOS (EPC/LOGÍSTICA) ---", ""],
+                                            ...(CHECKLIST_EQUIPAMENTOS.map(e => [e.equip, exportShift.checklist?.[e.id] ? 'CONFIRMADO' : 'NÃO CONFERIDO'])),
+                                            ["--- CHECKLIST EPIs ---", ""],
+                                            ...(CHECKLIST_EPIS.map(epi => [epi.mat, exportShift.checklist?.[epi.id] ? 'OK' : 'NÃO CONFERIDO'])),
+                                            ["--- CHECKLIST DOCUMENTAL ---", ""],
+                                            ...(CHECKLIST_DOCUMENTAL.map(doc => [doc.item, exportShift.checklist?.[doc.id] ? 'CONFERIDO' : 'PENDENTE']))
+                                        ];
+                                        const turnoCSV = stringsTurno.map(row => row.join(";")).join("\n");
+                                        zip.file("AUDITORIA_TURNO_RAM.csv", "\ufeff" + turnoCSV);
+                                        
+                                        try {
+                                            if (typeof XLSX !== 'undefined') {
+                                                const wb = XLSX.utils.book_new();
+
+                                                // ── ABA 1: ATIVIDADES DE CAMPO ──────────────────────────────
+                                                const colsAtiv = ["#","ID ÁRVORE (SISTEMA)","DATA","OPERADOR","PLACA","TIPO","PROTOCOLO / OS","NOME VULGAR","NOME CIENTÍFICO","CAP (cm)","ALTURA (m)","TIPO DE INTERVENÇÃO","STATUS","INÍCIO","FIM","HM TOTAL","HM MANEJO","HM SISTEMA","HM PAUSA","LATITUDE","LONGITUDE","ENDEREÇO","MOTIVO DA PAUSA","DESCRIÇÃO DO IMPEDIMENTO","OBSERVAÇÕES GERAIS","AUDITORIA GPS"];
+                                                const rowsAtiv = exportLogs.map((l, idx) => {
+                                                    const c = parseCoords(l.coords);
+                                                    const speciesParts = (l.species || 'N/A').split('/');
+                                                    const nomeVulgar     = speciesParts[0]?.trim() || l.species || 'N/A';
+                                                    const nomeCientifico = speciesParts[1]?.trim() || '';
+                                                    const motivoPausa    = l.type === 'pause' ? (l.tempPauseReason === 'Outros' ? (l.customPauseReason || l.pauseReason || 'N/A') : (l.pauseReason || l.tempPauseReason || 'N/A')) : '';
+                                                    const obsImpedimento = (l.type === 'tree' && l.status === 'IMPEDIDO') ? (l.problemDesc || l.desc || '') : '';
+                                                    const tipoIntervencao = l.type === 'tree' ? ((l.pruningTypes || []).join(" | ") || (l.status === 'IMPEDIDO' ? 'IMPEDIMENTO' : 'ROTINA')) : (l.type === 'pause' ? `PAUSA: ${motivoPausa}` : l.type?.toUpperCase() || '');
+                                                    const enderecoLog = l.endereco || l.location_name || exportShift.bairro_local || '';
+                                                    return [
+                                                        idx + 1,
+                                                        l.treeId || l.id || (l.type === 'tree' ? `ARV_${idx}` : `LOG_${idx}`),
+                                                        exportShift.journeyDate,
+                                                        exportShift.operador,
+                                                        exportShift.placa,
+                                                        getDemandLabel(l),
+                                                        l.osId || 'ROTINA',
+                                                        nomeVulgar,
+                                                        nomeCientifico,
+                                                        l.cap ? parseFloat(l.cap) : '',
+                                                        l.height ? parseFloat(l.height) : '',
+                                                        tipoIntervencao,
+                                                        l.status,
+                                                        l.startTime ? new Date(l.startTime).toLocaleTimeString() : '',
+                                                        l.endTime   ? new Date(l.endTime).toLocaleTimeString()   : '',
+                                                        formatHMS(l.durationSec),
+                                                        formatHMS(l.effectiveDurationSec || l.executionDurationSec),
+                                                        formatHMS(l.formDurationSec),
+                                                        formatHMS(l.totalPausedSeconds),
+                                                        c[0], c[1],
+                                                        enderecoLog,
+                                                        motivoPausa,
+                                                        obsImpedimento,
+                                                        l.problemReport || l.desc || '',
+                                                        l.gps_auditoria || 'N/A'
+                                                    ];
+                                                });
+                                                const wsAtividades = XLSX.utils.aoa_to_sheet([colsAtiv, ...rowsAtiv]);
+                                                // Largura das colunas
+                                                wsAtividades['!cols'] = [6,22,10,18,10,8,14,22,22,8,8,30,12,8,8,10,10,10,10,12,12,30,25,30,30,35].map(w=>({wch:w}));
+                                                XLSX.utils.book_append_sheet(wb, wsAtividades, "Atividades Campo");
+
+                                                // ── ABA 2: AUDITORIA DO TURNO ───────────────────────────────
+                                                const wsTurno = XLSX.utils.aoa_to_sheet(stringsTurno);
+                                                wsTurno['!cols'] = [{wch:35},{wch:40}];
+                                                XLSX.utils.book_append_sheet(wb, wsTurno, "Auditoria Turno");
+
+                                                // ── ABA 3: RESUMO POR ESPÉCIE ───────────────────────────────
+                                                const speciesCount = {};
+                                                exportLogs.filter(l => l.type === 'tree' && l.status === 'OK').forEach(l => {
+                                                    const sp = (l.species || 'N/A').split('/')[0].trim().toUpperCase();
+                                                    if (!speciesCount[sp]) speciesCount[sp] = { podas:0, cortes:0, total:0 };
+                                                    const isCorte = (l.pruningTypes || []).some(p => p.toLowerCase().includes('supressão') || p.toLowerCase().includes('corte'));
+                                                    if (isCorte) speciesCount[sp].cortes++; else speciesCount[sp].podas++;
+                                                    speciesCount[sp].total++;
+                                                });
+                                                const resumoRows = Object.entries(speciesCount)
+                                                    .sort((a,b) => b[1].total - a[1].total)
+                                                    .map(([sp, v]) => [sp, v.total, v.podas, v.cortes]);
+                                                const wsResumo = XLSX.utils.aoa_to_sheet([
+                                                    ["ESPÉCIE (NOME VULGAR)","TOTAL","PODAS","CORTES / SUPRESSÃO"],
+                                                    ...resumoRows,
+                                                    [],
+                                                    ["TOTAL GERAL", resumoRows.reduce((s,r)=>s+r[1],0), resumoRows.reduce((s,r)=>s+r[2],0), resumoRows.reduce((s,r)=>s+r[3],0)]
+                                                ]);
+                                                wsResumo['!cols'] = [{wch:30},{wch:8},{wch:8},{wch:20}];
+                                                XLSX.utils.book_append_sheet(wb, wsResumo, "Resumo por Espécie");
+
+                                                const xlsxBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+                                                zip.file("RELATORIO_RAD_CONSOLIDADO.xlsx", xlsxBuffer);
+                                            }
+                                        } catch (errXlsx) { console.error("Falha ao gerar XLSX offline: ", errXlsx); }
+                                        
+                                        const imgs = zip.folder("EVIDENCIAS");
+                                        const getImageData = async (imgObj) => {
+                                            if (!imgObj) return null;
+                                            const data = imgObj.base64 || imgObj.localPreview;
+                                            if (data && data.includes(',')) return data.split(',')[1];
+                                            return null;
+                                        };
+
+                                        const ddsBase64 = await getImageData({ base64: exportShift.foto_unificada?.base64, dds_image_path: exportShift.dds_image_path });
+                                        if (ddsBase64) imgs.file("01_ABERTURA.jpg", ddsBase64, { base64: true });
+
+                                        for (let idx = 0; idx < exportLogs.length; idx++) {
+                                            const l = exportLogs[idx];
+                                            const pPausa = await getImageData(l.tempPausePhoto); 
+                                            if (pPausa) imgs.file(`LOG_${idx}_PAUSA.jpg`, pPausa, { base64: true });
+                                            
+                                            const pImp = await getImageData(l.photoProblem); 
+                                            if (pImp) imgs.file(`LOG_${idx}_IMPEDIMENTO.jpg`, pImp, { base64: true });
+                                            
+                                            const pDestA = await getImageData(l.photoBefore); 
+                                            if (pDestA) imgs.file(`LOG_${idx}_DEST_A.jpg`, pDestA, { base64: true });
+                                            
+                                            const pDestD = await getImageData(l.photoAfter); 
+                                            if (pDestD) imgs.file(`LOG_${idx}_DEST_D.jpg`, pDestD, { base64: true });
+
+                                            if (l.photosBefore) {
+                                                for (let i = 0; i < l.photosBefore.length; i++) { 
+                                                    const data = await getImageData(l.photosBefore[i]); 
+                                                    if (data) imgs.file(`ARV_${idx}_ANTES_${i + 1}.jpg`, data, { base64: true }); 
+                                                }
+                                            }
+                                            if (l.photosAfter) {
+                                                for (let i = 0; i < l.photosAfter.length; i++) { 
+                                                    const data = await getImageData(l.photosAfter[i]); 
+                                                    if (data) imgs.file(`ARV_${idx}_DEPOIS_${i + 1}.jpg`, data, { base64: true }); 
+                                                }
+                                            }
+                                        }
+
+                                        const blob = await zip.generateAsync({ type: "blob", compression: "STORE", streamFiles: true });
+
+                                        // Nome inclui a PLACA para diferenciar equipes ao receber pelo WhatsApp.
+                                        // Ex: RAD_MCR_2026-04-16_AKK2G75.zip
+                                        const placaZip = safePlaca || 'SEM_PLACA';
+                                        const a = document.createElement("a");
+                                        a.href = URL.createObjectURL(blob);
+                                        a.download = `RAD_MCR_${journeyDate}_${placaZip}.zip`;
+                                        a.click();
+                                        
+                                        setDownloadedBlob(blob); 
+                                        setView('download_confirm');
+                                    } catch (e) { alert("Erro ao Gerar ZIP. " + e.message); } finally { setIsExporting(false); }
+                                }} 
+                                className="w-full py-6 rounded-[2.5rem] bg-slate-900 text-white font-black text-xl shadow-2xl mt-2 uppercase flex items-center justify-center gap-3 disabled:opacity-50 border-b-4 border-slate-700 active:scale-95 transition-all">
+                                <i className={isExporting ? "fas fa-spinner fa-spin" : "fas fa-cloud-upload-alt"}></i> 
+                                {isExporting ? "ENVIANDO..." : "FINALIZAR E ENVIAR"}
+                            </button>
+                            
+                            <button onClick={() => setView('dashboard')} className="mt-8 text-slate-400 font-black uppercase text-[10px] underline">Voltar</button>
+                            <p className="text-[8px] font-bold text-slate-300 mt-6 leading-tight max-w-[200px] mx-auto uppercase tracking-wider opacity-60">© Aplicativo Original<br/>Autor do Sistema: Engenheiro Florestal Thyêgo Nunes Alves Barreto, CREA-PR PE-048841/D</p>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (view === 'download_confirm') {
+                
+                return (
+                    <div className="min-h-screen bg-emerald-600 flex flex-col items-center justify-center p-8 text-center text-white screen-fade">
+                        <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center mb-6 shadow-2xl animate-bounce">
+                            <i className="fas fa-check text-4xl text-emerald-600"></i>
+                        </div>
+                        <h1 className="text-4xl font-black mb-2 uppercase">Finalizado!</h1>
+                        <p className="font-medium opacity-80 mb-6 max-w-xs mx-auto">O arquivo ZIP contém as fotos e a <b>PLANILHA EXCEL</b> prontas.</p>
+                        
+                        <div className="bg-white/10 border border-white/20 p-4 rounded-xl mb-6 w-full max-w-sm mx-auto shadow-inner">
+                            <p className="text-[9px] font-black uppercase text-emerald-200 flex items-center gap-2 justify-center mb-1"><i className="fas fa-envelope mt-0.5"></i> E-mail de Envio (RAD):</p>
+                            <p className="text-sm font-black text-white px-2 py-1 select-all tracking-wide underline decoration-emerald-400/30 underline-offset-4">danieladefreitasmcr@gmail.com</p>
+                        </div>
+                        <div className="space-y-3 w-full max-w-sm">
+                            <div className="grid grid-cols-2 gap-3 mb-4">
+                                <button 
+                                    onClick={() => { 
+                                        const a = document.createElement("a"); 
+                                        a.href = URL.createObjectURL(downloadedBlob); 
+                                        const placaRb = (shift?.placa || 'SEM_PLACA').replace(/[^a-zA-Z0-9]/g, '');
+                                        a.download = shift?.journeyDate
+                                            ? `RAD_MCR_${shift.journeyDate.split('/').reverse().join('-')}_${placaRb}.zip`
+                                            : `RAD_MCR_REBACKUP_${placaRb}.zip`;
+                                        a.click();
+                                    }} 
+                                    className="w-full py-4 rounded-xl bg-white/20 font-black text-[10px] uppercase border border-white/30 flex flex-col items-center justify-center gap-2 hover:bg-white/30 transition-colors">
+                                    <i className="fas fa-download text-xl"></i>
+                                    Baixar Arquivo
+                                </button>
+                                
+                                <button 
+                                    onClick={async () => { 
+                                        if (navigator.share && navigator.canShare) {
+                                            const safeDate = shift?.journeyDate ? shift.journeyDate.split('/').reverse().join('-') : 'HOJE';
+                                            const placaSh = (shift?.placa || 'SEM_PLACA').replace(/[^a-zA-Z0-9]/g, '');
+                                            const nomeArquivo = `RAD_MCR_${safeDate}_${placaSh}.zip`;
+                                            const file = new File([downloadedBlob], nomeArquivo, { type: 'application/zip' });
+                                            if (navigator.canShare({ files: [file] })) {
+                                                try {
+                                                    await navigator.share({
+                                                        title: 'RAD Poda - Expediente',
+                                                        text: `Segue o arquivo do turno (${nomeArquivo}) para conferência.`,
+                                                        files: [file]
+                                                    });
+                                                    return;
+                                                } catch (e) { console.log('Compartilhamento abortado', e); }
+                                            } else {
+                                                alert("Este celular não permite anexar arquivos diretamente daqui.");
+                                            }
+                                        } else {
+                                            alert("O seu navegador não suporta compartilhamento direto. Aperte em BAIXAR ARQUIVO e envie pelo WhatsApp pela sua galeria/arquivos.");
+                                        }
+                                    }} 
+                                    className="w-full py-4 rounded-xl bg-[#25D366] text-white font-black text-[10px] uppercase shadow-lg shadow-[#25D366]/40 flex flex-col items-center justify-center gap-2 active:scale-95 transition-transform">
+                                    <i className="fab fa-whatsapp text-2xl"></i>
+                                    Compartilhar
+                                </button>
+                            </div>
+                            
+                            <button
+                                onClick={async () => {
+                                    await idbKeyval.clear();
+                                    window.location.reload();
+                                }} 
+                                className="w-full py-4 rounded-xl bg-white text-emerald-700 font-black uppercase shadow-xl hover:scale-105 transition">
+                                Iniciar Novo Turno
+                            </button>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (confirmModal) {
+                return (
+                    <div className="fixed inset-0 z-[99999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-6 screen-fade">
+                        <div className="bg-white w-full max-w-sm rounded-[2rem] p-8 shadow-2xl text-center">
+                            <i className="fas fa-exclamation-triangle text-amber-500 text-4xl mb-4"></i>
+                            <h3 className="text-lg font-black text-slate-800 uppercase leading-tight mb-2">{confirmModal.title}</h3>
+                            <p className="text-sm text-slate-500 mb-8 whitespace-pre-line">{confirmModal.body}</p>
+                            <div className="space-y-3">
+                                <button onClick={confirmModal.onConfirm} className="w-full bg-audit-900 text-white py-4 rounded-2xl font-black uppercase shadow-lg text-sm">
+                                    {confirmModal.confirmLabel}
+                                </button>
+                                <button onClick={confirmModal.onCancel} className="w-full bg-slate-100 text-slate-500 py-4 rounded-2xl font-black uppercase text-xs">
+                                    {confirmModal.cancelLabel}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            return null;
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+
+        // Sistema de Proteção Anti-Cópia
+        document.addEventListener('contextmenu', event => event.preventDefault());
+        document.addEventListener('keydown', event => {
+            if (event.keyCode === 123) event.preventDefault(); // F12
+            if (event.ctrlKey && event.shiftKey && (event.keyCode === 73 || event.keyCode === 67 || event.keyCode === 74)) event.preventDefault(); // Control+Shift+I/C/J
+            if (event.ctrlKey && event.keyCode === 85) event.preventDefault(); // Control+U
+        });
+    </script>
+</body>
+</html>
