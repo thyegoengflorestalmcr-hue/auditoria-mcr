@@ -179,6 +179,16 @@
         const SUPERVISOR_HASH = CryptoJS.SHA256('MCR@Supervisor#2025').toString();
         const checkSupervisor = () => true;
 
+        const getLastValidGps = (logs, shift, fallbackCenter = '-24.5555,-54.0555') => {
+            if (!logs || !Array.isArray(logs)) return shift?.gps_abertura || fallbackCenter;
+            const validLog = [...logs].reverse().find(l => (l.coords || (l.lat && l.lng)) && l.coords !== '0,0');
+            if (validLog) {
+                if (validLog.coords) return validLog.coords;
+                if (validLog.lat && validLog.lng) return `${validLog.lat},${validLog.lng}`;
+            }
+            return shift?.gps_abertura || fallbackCenter;
+        };
+
         const safeCoords = (lat, lng) => {
             const la = parseFloat(lat);
             const lg = parseFloat(lng);
@@ -237,7 +247,7 @@
             "Uvaia", "Uva-do-japão", "Vassourão-branco"
         ].sort();
 
-        const PAUSE_REASONS = ["Almoço / Refeição", "Chuva / Tempo Ruim", "Quebra de Equipamento", "Interferência de Munícipe", "Abastecimento", "Suspensão Rede (COPEL)", "Outros"];
+        const PAUSE_REASONS = ["Almoço / Refeição", "Pernoite / Encerramento do Dia", "Chuva / Tempo Ruim", "Quebra de Equipamento", "Interferência de Munícipe", "Abastecimento", "Suspensão Rede (COPEL)", "Outros"];
 
         const CHECKLIST_EQUIPAMENTOS = [
             { id: 'eq_1', quant: '1', equip: 'Gaiola c/ isolam. NR12', espec: 'Certificada para trabalho em linha viva', obs: 'Essencial para trabalho próximo à rede elétrica energizada (NR-10), com laudo de isolamento dielétrico válido.', icon: 'fa-box-open' },
@@ -1536,6 +1546,15 @@
                                 </div>
                             </button>
 
+                            {/* Guia de Manejo Continuado (2 Dias) */}
+                            <div className="bg-amber-50 border-2 border-amber-300 p-4 rounded-2xl text-[10px] text-amber-900 leading-snug space-y-1.5 shadow-sm mb-3">
+                                <p className="font-black uppercase text-amber-800 flex items-center gap-1.5 text-[11px]">
+                                    💡 GUIA DE MANEJO CONTINUADO (2 DIAS):
+                                </p>
+                                <p>• <strong>Se o expediente acabar com árvores abertas:</strong> Clique em <strong>"Registrar Parada"</strong> e selecione a opção <strong>"Pernoite / Encerramento do Dia"</strong>. Todas as árvores ficarão congeladas e com os dados salvos.</p>
+                                <p>• <strong>No Dia Seguinte:</strong> Faça a <strong>Abertura do Turno (DDS)</strong> normalmente. A fila de árvores reaparecerá intacta. Basta clicar em <strong>"Retomar Serviço"</strong> para prosseguir!</p>
+                            </div>
+
                             <div className="grid grid-cols-2 gap-4">
                                 {!activeDisposal && (
                                     <button 
@@ -1553,9 +1572,9 @@
                                         setActiveAction({ type: 'pause', isPaused: false, photosBefore: [], photosAfter: [] }); 
                                         setView('global_pause_form'); 
                                     }} 
-                                    className={`h-32 bg-white border-2 border-slate-100 text-slate-700 p-6 rounded-[2rem] shadow-xl flex flex-col items-center justify-center gap-2 transition-all active:scale-95 border-b-4 border-slate-300 ${activeDisposal ? 'col-span-2' : ''}`}>
-                                    <i className="fas fa-circle-pause text-2xl text-slate-400"></i>
-                                    <span className="font-black text-xs uppercase tracking-tight text-center leading-tight">Registrar Parada<br/><span className="text-[8px] text-slate-400 uppercase opacity-60">Almoço / Chuva / Log</span></span>
+                                    className={`h-32 bg-amber-500 hover:bg-amber-600 border-2 border-amber-600 text-white shadow-2xl p-6 rounded-[2rem] shadow-xl flex flex-col items-center justify-center gap-2 transition-all active:scale-95 border-b-4 border-amber-700 ${activeDisposal ? 'col-span-2' : ''}`}>
+                                    <i className="fas fa-circle-pause text-3xl text-amber-100"></i>
+                                    <span className="font-black text-xs uppercase tracking-tight text-center leading-tight">Registrar Parada<br/><span className="text-[8px] text-amber-100 font-bold uppercase opacity-90">Almoço / Chuva / Log</span></span>
                                 </button>
                             </div>
                         </div>
@@ -2096,7 +2115,7 @@
                                         onClick={async () => {
                                             const cleanCap = parseCommaFloat(activeAction.cap) || 0;
                                             const treeId = generateTreeId(activeAction.species, cleanCap, gps.lat, gps.lng);
-                                            const coordsStr = safeCoords(gps.lat, gps.lng);
+                                            const coordsStr = safeCoords(gps.lat, gps.lng) || getLastValidGps(logs, shift);
                                             const now = Date.now();
                                             
                                             // Auditoria Silenciosa de GPS
@@ -2184,7 +2203,7 @@
                                                     const cleanCap = parseCommaFloat(activeAction.cap);
                                                     const cleanHeight = parseCommaFloat(activeAction.height);
                                                     const treeId = generateTreeId(activeAction.species, cleanCap, gps.lat, gps.lng);
-                                                    const coordsStr = safeCoords(gps.lat, gps.lng);
+                                                    const coordsStr = safeCoords(gps.lat, gps.lng) || getLastValidGps(logs, shift);
                                                     
                                                     // Auditoria Silenciosa de GPS
                                                     let auditGps = "GPS OK (ONLINE)";
@@ -2323,15 +2342,6 @@
                                 </Card>
                             )}
 
-                            {/* Botões de Ação de Execução Paralela */}
-                            <div className="flex justify-center w-full">
-                                <button 
-                                    onClick={() => setView('pause_during_tree')} 
-                                    className="w-full bg-amber-500 text-slate-900 py-5 rounded-[1.8rem] border-b-4 border-amber-600 font-black text-sm uppercase shadow-xl flex items-center justify-center gap-2 active:scale-95 transition-all"
-                                >
-                                    <i className="fas fa-pause text-xs"></i> Interromper Poda
-                                </button>
-                            </div>
                             
                             <Card className="border-2 border-audit-900 shadow-xl">
                                 <Label required>3 Fotos de Depois</Label>
@@ -2389,8 +2399,21 @@
                                     disabled={(activeAction.photosAfter?.filter(p => p).length < 3)} 
                                     onClick={async () => {
                                         const now = Date.now();
-                                        const execDuration = Math.floor((now - activeAction.executionStartTime) / 1000);
-                                        const effectiveDuration = execDuration - (activeAction.totalPausedSeconds || 0);
+                                                                                let execDuration = Math.floor((now - activeAction.executionStartTime) / 1000);
+                                        // Trava de Segurança Noturna: descarta o pernoite (18h às 08h do dia seguinte)
+                                        if (activeAction.startTime) {
+                                            const startD = new Date(activeAction.startTime);
+                                            const nowD = new Date(now);
+                                            if (startD.toDateString() !== nowD.toDateString()) {
+                                                const sameDayEnd = new Date(startD);
+                                                sameDayEnd.setHours(18, 0, 0, 0);
+                                                const maxSecsDay1 = Math.max(0, Math.floor((sameDayEnd.getTime() - startD.getTime()) / 1000));
+                                                if (execDuration > maxSecsDay1) {
+                                                    execDuration = maxSecsDay1;
+                                                }
+                                            }
+                                        }
+                                        const effectiveDuration = Math.max(0, execDuration - (activeAction.totalPausedSeconds || 0));
                                         const coordsStr = activeAction.treeCoords || safeCoords(gps.lat, gps.lng);
                                         
                                         const log = { 
