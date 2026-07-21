@@ -23,6 +23,7 @@
     <script src="https://cdn.jsdelivr.net/npm/browser-image-compression@2.0.2/dist/browser-image-compression.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/exif-js@2.3.0/exif.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
@@ -317,6 +318,111 @@
             return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
         };
 
+        // ─── CONFIGURAÇÃO SUPABASE AUTO-SYNC & TELEMETRIA ────────────────────────
+        const DEFAULT_PODA_SB_URL = "https://ziiktioufbrobuyxuhpp.supabase.co";
+        const DEFAULT_PODA_SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InppaWt0aW91ZmJyb2J1eXh1aHBwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ1MjE2MDIsImV4cCI6MjEwMDA5NzYwMn0.kcYDPoYPP5qqNl80D56rIu2zMkwcbasYsdcbbTRUK28";
+
+        let podaSupabaseClient = null;
+        function getPodaSupabaseClient() {
+            if (podaSupabaseClient) return podaSupabaseClient;
+            const url = localStorage.getItem('RAD_PODA_SUPABASE_URL') || DEFAULT_PODA_SB_URL;
+            const key = localStorage.getItem('RAD_PODA_SUPABASE_KEY') || DEFAULT_PODA_SB_KEY;
+            if (typeof supabase !== 'undefined' && supabase.createClient) {
+                try {
+                    podaSupabaseClient = supabase.createClient(url, key);
+                } catch (e) { console.warn("[RAD PODA] Erro ao conectar ao Supabase:", e); }
+            }
+            return podaSupabaseClient;
+        }
+
+        // ─── CAIXA PRETA DE TELEMETRIA (ANTI-MÁ-FÉ) ──────────────────────────────
+        async function logAuditTelemetry(eventType, details = {}) {
+            try {
+                const sb = getPodaSupabaseClient();
+                const shift = await idbKeyval.get('mcr_shift_v21_oficial') || {};
+                const telemetryEvent = {
+                    id_event: `TEL_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+                    timestamp: new Date().toISOString(),
+                    event_type: eventType,
+                    placa: shift.placa || 'SEM_PLACA',
+                    operador: shift.responsavel_empresa || shift.rt || 'DESCONHECIDO',
+                    details: JSON.stringify(details),
+                    created_at: new Date().toISOString()
+                };
+                const currentTelemetry = await idbKeyval.get('mcr_telemetry_queue') || [];
+                currentTelemetry.push(telemetryEvent);
+                await idbKeyval.set('mcr_telemetry_queue', currentTelemetry.slice(-100));
+
+                if (sb && navigator.onLine) {
+                    await sb.from('mcr_audit_telemetry').insert([telemetryEvent]).catch(() => {});
+                }
+            } catch (e) { console.warn("Telemetria warn:", e); }
+        }
+
+        // ─── AUTO-SYNC EM TEMPO REAL PARA NUVEM SUPABASE ─────────────────────────
+        async function autoSyncPodaToCloud() {
+            if (!navigator.onLine) return;
+            const sb = getPodaSupabaseClient();
+            if (!sb) return;
+
+            try {
+                const shift = await idbKeyval.get('mcr_shift_v21_oficial');
+                const logs = await idbKeyval.get('mcr_logs_v21_oficial') || [];
+
+                if (shift) {
+                    const shiftPayload = {
+                        shift_id: `${shift.journeyDate}_${shift.placa}`,
+                        journey_date: shift.journeyDate,
+                        placa: shift.placa,
+                        operador: shift.responsavel_empresa || shift.rt,
+                        journey_start_time: shift.journeyStartTime,
+                        journey_end_time: shift.journeyEndTime,
+                        bairro_local: shift.bairro_local,
+                        gps_abertura: shift.gps_abertura,
+                        updated_at: new Date().toISOString()
+                    };
+                    await sb.from('mcr_poda_shifts').upsert([shiftPayload], { onConflict: 'shift_id' }).catch(() => {});
+                }
+
+                if (logs.length > 0) {
+                    const logsPayload = logs.map(l => ({
+                        tree_id: l.treeId || `TREE_${l.timestamp}_${l.species}`,
+                        shift_id: shift ? `${shift.journeyDate}_${shift.placa}` : 'N/A',
+                        type: l.type,
+                        species: l.species,
+                        cap: l.cap,
+                        height: l.height,
+                        status: l.status,
+                        pruning_types: l.pruningTypes || [],
+                        effective_duration_sec: l.effectiveDurationSec || 0,
+                        duration_sec: l.durationSec || 0,
+                        form_duration_sec: l.formDurationSec || 0,
+                        total_paused_seconds: l.totalPausedSeconds || 0,
+                        start_time: l.startTime,
+                        end_time: l.endTime,
+                        timestamp: l.timestamp,
+                        coords: l.coords,
+                        lat: l.lat,
+                        lng: l.lng,
+                        gps_auditoria: l.gps_auditoria,
+                        updated_at: new Date().toISOString()
+                    }));
+                    await sb.from('mcr_poda_logs').upsert(logsPayload, { onConflict: 'tree_id' }).catch(() => {});
+                }
+            } catch (err) { console.warn("Auto-sync Poda warning:", err); }
+        }
+
+        window.addEventListener('online', () => {
+            console.log("🌐 Conexão restaurada. Transmitindo dados do RAD PODA para o Supabase...");
+            logAuditTelemetry('NETWORK_RESTORED_ONLINE', { note: 'Conexão de dados móveis/Wi-Fi reativada' });
+            autoSyncPodaToCloud();
+        });
+
+        window.addEventListener('offline', () => {
+            console.warn("⚠️ Dispositivo offline.");
+            logAuditTelemetry('NETWORK_DISCONNECTED_OFFLINE', { note: 'Conexão perdida ou desativada' });
+        });
+
         const Card = ({ children, className = "", gradient = "" }) => (
             <div className={`bg-white rounded-[2.5rem] shadow-xl border border-slate-100 mb-6 overflow-hidden transition-all duration-300 hover:shadow-2xl ${className}`}>
                 {gradient && <div className={`h-2 w-full ${gradient}`}></div>}
@@ -408,6 +514,7 @@
             const [disposalElapsed, setDisposalElapsed] = useState(0);
             const [journeyElapsed, setJourneyElapsed] = useState(0);
             const [showEndConfirm, setShowEndConfirm] = useState(false);
+            const [tick, setTick] = useState(0);
             const [isExporting, setIsExporting] = useState(false);
             const [downloadedBlob, setDownloadedBlob] = useState(null);
             const [hasLoaded, setHasLoaded] = useState(false);
@@ -429,6 +536,10 @@
                     if (isDupe) return prev;
                     return [newLog, ...prev];
                 });
+                setTimeout(() => {
+                    autoSyncPodaToCloud();
+                    logAuditTelemetry('LOG_ADDED', { type: newLog.type, treeId: newLog.treeId, species: newLog.species });
+                }, 300);
             };
 
             const safeGetPublicUrl = (path) => path;
@@ -555,12 +666,17 @@
                             setPauseElapsed(Math.floor((Date.now() - activeAction.pauseStartTime) / 1000));
                         }
                     }
-                    // Força a atualização do estado visual da Fila de Execução para atualizar os cronômetros correndo
+                    // Força a atualização dos cronômetros visuais sem alterar referências e sem gravar IDB
                     if (pendingTrees.some(t => t.statusFila === 'executando')) {
-                        setPendingTrees(prev => [...prev]);
+                        setTick(t => t + 1);
                     }
                     if (activeDisposal && activeDisposal.startTime) {
-                        setDisposalElapsed(Math.floor((Date.now() - activeDisposal.startTime) / 1000));
+                        const isPaused = (activeAction?.isPaused || activeAction?.type === 'pause');
+                        const baseSec = activeDisposal.baseSec || 0;
+                        const endRef = isPaused ? (activeAction?.pauseStartTime || Date.now()) : Date.now();
+                        const rawLive = Math.max(0, Math.floor((endRef - activeDisposal.startTime) / 1000));
+                        const activeSec = Math.max(0, rawLive - (activeDisposal.totalPausedSeconds || 0));
+                        setDisposalElapsed(baseSec + activeSec);
                     }
                 }, 1000);
                 return () => clearInterval(timer);
@@ -593,34 +709,50 @@
                 });
             };
 
-            const getUsedPhotoBase64s = () => {
-                const list = [];
-                if (shift && shift.foto_unificada) list.push(shift.foto_unificada);
+            const getUsedPhotoFingerprints = () => {
+                const fingerprints = new Set();
+                const addPhoto = (p) => {
+                    if (!p) return;
+                    if (p.rawFingerprint) fingerprints.add(p.rawFingerprint);
+                    // Pega os pixels do corpo final do base64 (evita o cabeçalho padronizado JPEG dos navegadores)
+                    if (typeof p === 'string' && p.length > 1000) fingerprints.add(p.slice(-1000));
+                    else if (p.base64 && p.base64.length > 1000) fingerprints.add(p.base64.slice(-1000));
+                };
+
+                if (shift && shift.foto_unificada) addPhoto(shift.foto_unificada);
                 
                 if (Array.isArray(pendingTrees)) {
                     pendingTrees.forEach(t => {
-                        if (t.photosBefore) t.photosBefore.forEach(p => p && list.push(p.base64 || p));
-                        if (t.photosAfter) t.photosAfter.forEach(p => p && list.push(p.base64 || p));
+                        if (t.photosBefore) t.photosBefore.forEach(addPhoto);
+                        if (t.photosAfter) t.photosAfter.forEach(addPhoto);
                     });
                 }
                 
                 if (Array.isArray(logs)) {
                     logs.forEach(l => {
-                        if (l.photosBefore) l.photosBefore.forEach(p => p && list.push(p.base64 || p));
-                        if (l.photosAfter) l.photosAfter.forEach(p => p && list.push(p.base64 || p));
+                        if (l.photosBefore) l.photosBefore.forEach(addPhoto);
+                        if (l.photosAfter) l.photosAfter.forEach(addPhoto);
                     });
                 }
                 
                 if (activeAction) {
-                    if (activeAction.photosBefore) activeAction.photosBefore.forEach(p => p && list.push(p.base64 || p));
-                    if (activeAction.photosAfter) activeAction.photosAfter.forEach(p => p && list.push(p.base64 || p));
+                    if (activeAction.photosBefore) activeAction.photosBefore.forEach(addPhoto);
+                    if (activeAction.photosAfter) activeAction.photosAfter.forEach(addPhoto);
                 }
                 
-                return list.map(item => typeof item === 'string' ? item : (item ? item.base64 : null)).filter(Boolean);
+                return fingerprints;
             };
 
             const processPhoto = async (file, photoType = 'GENERICO') => {
                 if (!file) return null;
+
+                const fileFingerprint = `${file.name}_${file.size}_${file.lastModified}`;
+                const usedFingerprints = getUsedPhotoFingerprints();
+
+                if (usedFingerprints.has(fileFingerprint)) {
+                    alert("⛔ BLOQUEIO ANTI-FRAUDE (CONTRATO PREGÃO 71/2025):\n\nEste mesmo arquivo de imagem já foi utilizado como foto neste turno.\n\nPor favor, escolha uma foto diferente ou tire uma nova foto real.");
+                    return null;
+                }
 
                 // Validação Anti-Fraude: Verificar se a foto foi capturada nos últimos 5 minutos (evitar galeria antiga)
                 let photoTime = null;
@@ -641,15 +773,6 @@
 
                 if (!photoTime && file.lastModified) {
                     photoTime = file.lastModified;
-                }
-
-                if (photoTime) {
-                    const diffMinutes = Math.abs(Date.now() - photoTime) / (1000 * 60);
-                    const isFotoAntiga = diffMinutes > 5; 
-                    if (isFotoAntiga) {
-                        console.warn("⚠️ [MODO TESTE - GALERIA LIBERADA]: Foto antiga detectada (" + Math.round(diffMinutes) + " min), mas permitida para demonstração e testes no PC.");
-                        // throw new Error("FOTO_ANTIGA");
-                    }
                 }
 
                 try {
@@ -710,18 +833,11 @@
 
                     // Exporta como jpeg compacto direto (qualidade 0.65)
                     const base64 = canvas.toDataURL('image/jpeg', 0.65);
+                    const base64PixelSig = base64.slice(-1000);
 
-                    // Validação Anti-Fraude de Duplicidade de Fotos no Turno
-                    try {
-                        const usedBase64s = getUsedPhotoBase64s();
-                        if (usedBase64s.includes(base64)) {
-                            alert("⚠️ ERRO DE SEGURANÇA: Esta foto já foi utilizada neste turno!\n\nPor favor, tire uma nova foto real. A duplicação de imagens é proibida por razões de fiscalização e compliance.");
-                            throw new Error("FOTO_DUPLICADA");
-                        }
-                    } catch (err) {
-                        if (err.message === "FOTO_DUPLICADA") throw err;
-                        // Silencia outros possíveis erros de leitura de array para não travar a câmera
-                        console.error("Erro na validação de fotos: ", err);
+                    if (usedFingerprints.has(base64PixelSig)) {
+                        alert("⛔ BLOQUEIO DE FISCALIZAÇÃO: Esta foto é visualmente idêntica a uma foto já utilizada neste turno! Escolha uma foto diferente ou tire uma foto nova.");
+                        return null;
                     }
 
                     const fileExt = (file.name || 'foto.jpg').split('.').pop() || 'jpg';
@@ -734,6 +850,7 @@
                     return {
                         base64: base64,
                         localPreview: base64,
+                        rawFingerprint: fileFingerprint,
                         storagePath: storagePath,
                         publicUrl: base64,
                         metadata: { originalDate: dateStr, gps_lat: lat, gps_lng: lng },
@@ -748,7 +865,30 @@
 
 
             
+            const calculateUnionDuration = (intervals) => {
+                if (!intervals || intervals.length === 0) return 0;
+                const sorted = [...intervals].filter(i => i.start && i.end && i.end >= i.start).sort((a, b) => a.start - b.start);
+                if (sorted.length === 0) return 0;
+
+                const merged = [];
+                let current = { start: sorted[0].start, end: sorted[0].end };
+
+                for (let i = 1; i < sorted.length; i++) {
+                    const next = sorted[i];
+                    if (next.start <= current.end) {
+                        current.end = Math.max(current.end, next.end);
+                    } else {
+                        merged.push(current);
+                        current = { start: next.start, end: next.end };
+                    }
+                }
+                merged.push(current);
+
+                return merged.reduce((sum, int) => sum + Math.max(0, Math.floor((int.end - int.start) / 1000)), 0);
+            };
+
             const stats = useMemo(() => {
+                const now = Date.now();
                 const treeLogs = logs.filter(l => l.type === 'tree' && l.status !== 'IMPEDIDO');
                 const disposalLogs = logs.filter(l => l.type === 'disposal');
 
@@ -756,22 +896,91 @@
                 const totalManejoPuroSec = treeLogs.reduce((acc, log) => acc + (log.effectiveDurationSec || 0), 0);
                 const totalDisposalSec = disposalLogs.reduce((acc, log) => acc + (log.durationSec || 0), 0);
 
-                // Calcula o tempo de manejo rodando no relógio atual de forma paralela
-                const activeRunningTrees = pendingTrees.filter(t => t.statusFila === 'executando');
-                let runningManejo = 0;
-                if (activeRunningTrees.length > 0) {
-                    const minStartTime = Math.min(...activeRunningTrees.map(t => t.executionStartTime || Date.now()));
-                    runningManejo = Math.floor((Date.now() - minStartTime) / 1000);
-                } else if (activeAction && activeAction.type === 'tree' && !activeAction.isPaused) {
-                    runningManejo = elapsed;
+                // Reúne todos os intervalos de trabalho efetivo líquido do turno (concluídos + em andamento na fila)
+                // Garantimos que todos os intervalos de trabalho e pausas fiquem estritamente dentro da Jornada de Hoje (journeyStartTime)
+                const workIntervals = [];
+                const shiftStart = Number(shift.journeyStartTime || now);
+
+                treeLogs.forEach(l => {
+                    if (l.endTime) {
+                        const netSec = l.effectiveDurationSec || l.executionDurationSec || 0;
+                        const end = Number(l.endTime);
+                        const start = Math.max(end - netSec * 1000, shiftStart);
+                        if (end > start) {
+                            workIntervals.push({ start, end });
+                        }
+                    }
+                });
+
+                disposalLogs.forEach(l => {
+                    if (l.endTime) {
+                        const netSec = l.durationSec || 0;
+                        const end = Number(l.endTime);
+                        const start = Math.max(end - netSec * 1000, shiftStart);
+                        if (end > start) {
+                            workIntervals.push({ start, end });
+                        }
+                    }
+                });
+
+                pendingTrees.forEach(t => {
+                    if (t.statusFila === 'executando') {
+                        // Calcula a duração líquida correndo agora
+                        const isGlobalPaused = (activeAction?.isPaused || activeAction?.type === 'pause');
+                        const endRef = isGlobalPaused ? (activeAction.pauseStartTime || now) : now;
+                        const rawLive = Math.max(0, Math.floor((endRef - (t.executionStartTime || now)) / 1000));
+                        const activeSec = Math.max(0, rawLive - (t.totalPausedSeconds || 0));
+                        const baseSec = t.executionDurationSec || t.effectiveDurationSec || 0;
+                        const totalNet = baseSec + activeSec;
+
+                        const end = endRef;
+                        const start = Math.max(end - totalNet * 1000, shiftStart);
+                        if (end > start) {
+                            workIntervals.push({ start, end });
+                        }
+                    } else if (t.executionDurationSec || t.effectiveDurationSec) {
+                        const netSec = t.executionDurationSec || t.effectiveDurationSec || 0;
+                        const end = now;
+                        const start = Math.max(end - netSec * 1000, shiftStart);
+                        if (end > start) {
+                            workIntervals.push({ start, end });
+                        }
+                    }
+                });
+
+                if (activeDisposal && activeDisposal.startTime) {
+                    const isGlobalPaused = (activeAction?.isPaused || activeAction?.type === 'pause');
+                    const endRef = isGlobalPaused ? (activeAction.pauseStartTime || now) : now;
+                    const rawLive = Math.max(0, Math.floor((endRef - activeDisposal.startTime) / 1000));
+                    const activeSec = Math.max(0, rawLive - (activeDisposal.totalPausedSeconds || 0));
+                    const baseSec = activeDisposal.baseSec || 0;
+                    const totalNet = baseSec + activeSec;
+
+                    const end = endRef;
+                    const start = Math.max(end - totalNet * 1000, shiftStart);
+                    if (end > start) {
+                        workIntervals.push({ start, end });
+                    }
                 }
 
-                const runningDisposal = (activeDisposal) ? disposalElapsed : 0;
                 const runningPause = (activeAction?.isPaused || activeAction?.type === 'pause') ? pauseElapsed : 0;
+                
+                // Calcula as pausas registradas garantindo que pertençam à jornada de hoje
+                const pausesSec = logs.filter(l => l.status === 'PAUSA').reduce((acc, log) => {
+                    if (log.startTime && log.endTime) {
+                        const start = Math.max(Number(log.startTime), shiftStart);
+                        const end = Math.max(start, Number(log.endTime));
+                        return acc + Math.floor((end - start) / 1000);
+                    }
+                    return acc + (log.durationSec || 0);
+                }, 0) + runningPause;
 
-                const hmTotalEfetivo = totalFormSec + totalManejoPuroSec + totalDisposalSec + runningManejo + runningDisposal;
+                // HM EFETIVO DO TURNO: União Geométrica de Trabalho Efetivo (que já não possui as pausas e está contida na Jornada)
+                const unionWorkSec = calculateUnionDuration(workIntervals);
                 const journeySec = journeyElapsed;
-                const pausesSec = logs.filter(l => l.status === 'PAUSA').reduce((acc, log) => acc + (log.durationSec || 0), 0) + runningPause;
+
+                // HM Efetivo nunca pode exceder o tempo decorrido da Jornada
+                const hmTotalEfetivo = (journeySec > 0) ? Math.min(journeySec, unionWorkSec) : unionWorkSec;
                 const logisticSec = Math.max(0, journeySec - hmTotalEfetivo - pausesSec);
 
                 return {
@@ -779,6 +988,7 @@
                     preparo: totalFormSec, 
                     manejo: totalManejoPuroSec, 
                     disposal: totalDisposalSec,
+                    pauses: pausesSec,
                     logistics: logisticSec, 
                     journey: journeySec, 
                     totalTrees: logs.filter(l => l.type === 'tree').length,
@@ -1352,32 +1562,47 @@
                             </div>
                         </div>
 
-                        {/* Métricas grid */}
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="bg-white p-6 rounded-[2rem] border-2 border-slate-50 shadow-xl shadow-slate-200/50 group overflow-hidden relative">
-                                <div className="absolute -right-4 -bottom-4 bg-emerald-50 w-20 h-20 rounded-full blur-2xl group-hover:scale-110 transition-transform"></div>
-                                <div className="flex items-center gap-2 mb-4">
-                                    <div className="w-8 h-8 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-600">
-                                        <i className="fas fa-hourglass-start text-xs"></i>
+                        {/* Métricas grid - 3 Categorias Distintas */}
+                        <div className="grid grid-cols-3 gap-3">
+                            <div className="bg-white p-4 rounded-[1.8rem] border-2 border-slate-50 shadow-xl shadow-slate-200/50 group overflow-hidden relative">
+                                <div className="absolute -right-4 -bottom-4 bg-emerald-50 w-16 h-16 rounded-full blur-2xl group-hover:scale-110 transition-transform"></div>
+                                <div className="flex items-center gap-1.5 mb-2">
+                                    <div className="w-6 h-6 bg-emerald-50 rounded-lg flex items-center justify-center text-emerald-600">
+                                        <i className="fas fa-hourglass-start text-[10px]"></i>
                                     </div>
-                                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-tighter">Hm Efetivo</p>
+                                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-tighter">HM Efetivo</p>
                                 </div>
-                                <p className="text-2xl font-black text-slate-800 tracking-tight leading-none">{formatDuration(stats.work)}</p>
-                                <div className="mt-3 w-full bg-slate-50 h-1.5 rounded-full overflow-hidden">
-                                    <div className="bg-emerald-500 h-full rounded-full transition-all duration-1000" style={{ width: `${Math.min(100, (stats.work/stats.journey)*100)}%` }}></div>
+                                <p className="text-lg font-black text-slate-800 tracking-tight leading-none">{formatDuration(stats.work)}</p>
+                                <div className="mt-2 w-full bg-slate-50 h-1 rounded-full overflow-hidden">
+                                    <div className="bg-emerald-500 h-full rounded-full transition-all duration-1000" style={{ width: `${Math.min(100, (stats.work/(stats.journey||1))*100)}%` }}></div>
                                 </div>
                             </div>
-                            <div className="bg-white p-6 rounded-[2rem] border-2 border-slate-50 shadow-xl shadow-slate-200/50 group overflow-hidden relative">
-                                <div className="absolute -right-4 -bottom-4 bg-amber-50 w-20 h-20 rounded-full blur-2xl group-hover:scale-110 transition-transform"></div>
-                                <div className="flex items-center gap-2 mb-4">
-                                    <div className="w-8 h-8 bg-amber-50 rounded-xl flex items-center justify-center text-amber-600">
-                                        <i className="fas fa-truck-fast text-xs"></i>
+
+                            <div className="bg-white p-4 rounded-[1.8rem] border-2 border-slate-50 shadow-xl shadow-slate-200/50 group overflow-hidden relative">
+                                <div className="absolute -right-4 -bottom-4 bg-amber-50 w-16 h-16 rounded-full blur-2xl group-hover:scale-110 transition-transform"></div>
+                                <div className="flex items-center gap-1.5 mb-2">
+                                    <div className="w-6 h-6 bg-amber-50 rounded-lg flex items-center justify-center text-amber-600">
+                                        <i className="fas fa-pause text-[10px]"></i>
                                     </div>
-                                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-tighter">Ocioso / Log</p>
+                                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-tighter">Pausas</p>
                                 </div>
-                                <p className="text-2xl font-black text-slate-800 tracking-tight leading-none">{formatDuration(stats.logistics)}</p>
-                                <div className="mt-3 w-full bg-slate-50 h-1.5 rounded-full overflow-hidden">
-                                    <div className="bg-amber-500 h-full rounded-full transition-all duration-1000" style={{ width: `${Math.min(100, (stats.logistics/stats.journey)*100)}%` }}></div>
+                                <p className="text-lg font-black text-slate-800 tracking-tight leading-none">{formatDuration(stats.pauses)}</p>
+                                <div className="mt-2 w-full bg-slate-50 h-1 rounded-full overflow-hidden">
+                                    <div className="bg-amber-500 h-full rounded-full transition-all duration-1000" style={{ width: `${Math.min(100, (stats.pauses/(stats.journey||1))*100)}%` }}></div>
+                                </div>
+                            </div>
+
+                            <div className="bg-white p-4 rounded-[1.8rem] border-2 border-slate-50 shadow-xl shadow-slate-200/50 group overflow-hidden relative">
+                                <div className="absolute -right-4 -bottom-4 bg-slate-100 w-16 h-16 rounded-full blur-2xl group-hover:scale-110 transition-transform"></div>
+                                <div className="flex items-center gap-1.5 mb-2">
+                                    <div className="w-6 h-6 bg-slate-100 rounded-lg flex items-center justify-center text-slate-600">
+                                        <i className="fas fa-truck-fast text-[10px]"></i>
+                                    </div>
+                                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-tighter">Ocioso / Log</p>
+                                </div>
+                                <p className="text-lg font-black text-slate-800 tracking-tight leading-none">{formatDuration(stats.logistics)}</p>
+                                <div className="mt-2 w-full bg-slate-50 h-1 rounded-full overflow-hidden">
+                                    <div className="bg-slate-400 h-full rounded-full transition-all duration-1000" style={{ width: `${Math.min(100, (stats.logistics/(stats.journey||1))*100)}%` }}></div>
                                 </div>
                             </div>
                         </div>
@@ -1432,10 +1657,15 @@
                                     <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1 no-scrollbar">
                                         {pendingTrees.map((tree, idx) => {
                                             const isRunning = tree.statusFila === 'executando';
-                                            let treeElapsed = 0;
+                                            const baseSec = tree.executionDurationSec || tree.effectiveDurationSec || 0;
+                                            const isGlobalPaused = (activeAction?.isPaused || activeAction?.type === 'pause');
+                                            let activeSec = 0;
                                             if (isRunning && tree.executionStartTime) {
-                                                treeElapsed = Math.floor((Date.now() - tree.executionStartTime) / 1000) - (tree.totalPausedSeconds || 0);
+                                                const endRef = isGlobalPaused ? (activeAction?.pauseStartTime || Date.now()) : Date.now();
+                                                const rawLive = Math.max(0, Math.floor((endRef - tree.executionStartTime) / 1000));
+                                                activeSec = Math.max(0, rawLive - (tree.totalPausedSeconds || 0));
                                             }
+                                            const treeElapsed = baseSec + activeSec;
                                             
                                             const firstPhoto = tree.photosBefore?.[0];
                                             const photoSrc = firstPhoto ? (firstPhoto.localPreview || firstPhoto.base64) : null;
@@ -1466,11 +1696,9 @@
                                                             <p className="font-black text-xs text-slate-800 uppercase truncate leading-none">
                                                                 {tree.species}
                                                             </p>
-                                                            {isRunning && (
-                                                                <span className="bg-emerald-500 text-white font-mono text-[8px] font-black px-1.5 py-0.5 rounded-full animate-pulse shadow-sm">
-                                                                    {formatDuration(treeElapsed)}
-                                                                </span>
-                                                            )}
+                                                            <span className={`font-mono text-[8px] font-black px-2 py-0.5 rounded-full shadow-sm ${isRunning ? 'bg-emerald-500 text-white animate-pulse' : 'bg-slate-200 text-slate-700'}`}>
+                                                                {formatDuration(treeElapsed)}
+                                                            </span>
                                                             {tree.copelRequired === 'SIM' && (
                                                                 <span className="bg-red-100 text-red-600 border border-red-200/50 text-[7px] font-black uppercase px-1.5 py-0.2 rounded">COPEL</span>
                                                             )}
@@ -1551,8 +1779,8 @@
                                 <p className="font-black uppercase text-amber-800 flex items-center gap-1.5 text-[11px]">
                                     💡 GUIA DE MANEJO CONTINUADO (2 DIAS):
                                 </p>
-                                <p>• <strong>Se o expediente acabar com árvores abertas:</strong> Clique em <strong>"Registrar Parada"</strong> e selecione a opção <strong>"Pernoite / Encerramento do Dia"</strong>. Todas as árvores ficarão congeladas e com os dados salvos.</p>
-                                <p>• <strong>No Dia Seguinte:</strong> Faça a <strong>Abertura do Turno (DDS)</strong> normalmente. A fila de árvores reaparecerá intacta. Basta clicar em <strong>"Retomar Serviço"</strong> para prosseguir!</p>
+                                <p>• <strong>Fim do Dia:</strong> Clique em <strong>"Registrar Parada"</strong> e selecione <strong>"Pernoite / Encerramento do Dia"</strong>. Em seguida, role a tela até o final e clique no botão <strong>"Finalizar Expediente Diário"</strong>, faça a exportação e envie o relatório RAD do dia.</p>
+                                <p>• <strong>Dia Seguinte:</strong> Ao chegar no mesmo local onde parou, faça a <strong>Abertura do Turno (DDS)</strong> do novo dia normalmente. A fila de árvores de ontem reaparecerá intacta. Clique em <strong>"Retomar Serviço"</strong> para prosseguir!</p>
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
@@ -2229,26 +2457,25 @@
 
                                                     const nowTime = Date.now();
                                                     const newTree = {
-                                                        ...activeAction,
-                                                        cap: cleanCap,
-                                                        height: cleanHeight,
-                                                        treeId,
-                                                        photosBefore: updatedPhotosBefore,
-                                                        type: 'tree',
-                                                        statusFila: 'executando',
-                                                        executionStartTime: nowTime,
-                                                        startTime: nowTime,
-                                                        totalPausedSeconds: 0,
-                                                        endereco: activeAction.endereco || shift.bairro_local,
-                                                        desc: `${activeAction.species} [${activeAction.osId || (activeAction.pruningTypes?.[0] || 'MANEJO')}]`,
-                                                        treeCoords: coordsStr,
-                                                        gps_auditoria: auditGps,
-                                                        pruningTypes: activeAction.pruningTypes || []
-                                                    };
+                                                         ...activeAction,
+                                                         cap: cleanCap,
+                                                         height: cleanHeight,
+                                                         treeId,
+                                                         photosBefore: updatedPhotosBefore,
+                                                         type: 'tree',
+                                                         statusFila: 'executando',
+                                                         executionStartTime: nowTime,
+                                                         startTime: nowTime,
+                                                         totalPausedSeconds: 0,
+                                                         desc: `${activeAction.species} [${activeAction.osId || (activeAction.pruningTypes?.[0] || 'MANEJO')}]`,
+                                                         treeCoords: coordsStr,
+                                                         gps_auditoria: auditGps,
+                                                         pruningTypes: activeAction.pruningTypes || []
+                                                     };
 
-                                                    setPendingTrees(prev => [...prev, newTree]);
-                                                    
-                                                    // Redireciona automaticamente ao Dashboard limpando a ação ativa
+                                                     setPendingTrees(prev => [...prev, newTree]);
+
+                                                     // Redireciona automaticamente ao Dashboard limpando a ação ativa
                                                     setActiveAction(null);
                                                     setView('dashboard');
                                                     
@@ -2521,6 +2748,21 @@
                                 onClick={() => {
                                     const now = Date.now(); 
                                     const pauseCoords = safeCoords(gps.lat, gps.lng);
+                                    
+                                    // Pausa todas as árvores ativas na fila salvando a duração acumulada até este segundo
+                                    setPendingTrees(prev => prev.map(t => {
+                                        if (t.statusFila === 'executando') {
+                                            const accSec = Math.floor((now - (t.executionStartTime || now)) / 1000) - (t.totalPausedSeconds || 0);
+                                            return {
+                                                ...t,
+                                                statusFila: 'pausado',
+                                                executionDurationSec: Math.max(0, accSec),
+                                                effectiveDurationSec: Math.max(0, accSec)
+                                            };
+                                        }
+                                        return t;
+                                    }));
+
                                     setActiveAction({ 
                                         ...activeAction, 
                                         type: activeAction?.type || 'pause', 
@@ -2570,15 +2812,51 @@
                         <div className="mt-auto px-4 pb-12 z-10">
                             <button 
                                 onClick={async () => {
-                                    const pDur = Math.floor((Date.now() - activeAction.pauseStartTime) / 1000);
+                                    const now = Date.now();
+                                    const pDur = Math.floor((now - activeAction.pauseStartTime) / 1000);
                                     const logCoords = activeAction.pauseCoords || safeCoords(gps.lat, gps.lng);
+
+                                     // Consolida o tempo das árvores até o início da pausa e retoma com novo ciclo
+                                     setPendingTrees(prev => prev.map(t => {
+                                         const pauseStart = activeAction.pauseStartTime || now;
+                                         const prevBase = t.executionDurationSec || t.effectiveDurationSec || 0;
+                                         let runSec = 0;
+                                         if (t.executionStartTime) {
+                                             runSec = Math.max(0, Math.floor((pauseStart - t.executionStartTime) / 1000) - (t.totalPausedSeconds || 0));
+                                         }
+                                         const newBase = prevBase + runSec;
+                                         return {
+                                             ...t,
+                                             statusFila: 'executando',
+                                             executionDurationSec: newBase,
+                                             effectiveDurationSec: newBase,
+                                             executionStartTime: now,
+                                             totalPausedSeconds: 0
+                                         };
+                                     }));
+
+                                     if (activeDisposal && activeDisposal.step === 'running') {
+                                         setActiveDisposal(prev => {
+                                             if (!prev) return null;
+                                             const pauseStart = activeAction.pauseStartTime || now;
+                                             const prevBase = prev.baseSec || 0;
+                                             const runSec = prev.startTime ? Math.max(0, Math.floor((pauseStart - prev.startTime) / 1000) - (prev.totalPausedSeconds || 0)) : 0;
+                                             return {
+                                                 ...prev,
+                                                 baseSec: prevBase + runSec,
+                                                 startTime: now,
+                                                 totalPausedSeconds: 0
+                                             };
+                                         });
+                                     }
+
                                     if (activeAction.type === 'pause') {
                                         const log = { 
                                             ...activeAction, 
-                                            endTime: Date.now(), 
+                                            endTime: now, 
                                             durationSec: pDur, 
                                             status: 'PAUSA', 
-                                            timestamp: new Date().toISOString(), 
+                                            timestamp: new Date(now).toISOString(), 
                                             coords: logCoords 
                                         };
                                         safeAddLog(log); 
@@ -2623,27 +2901,27 @@
                         </div>
 
                         <div className="space-y-6 flex-1 flex flex-col">
-                            <Card gradient="bg-blue-600">
+                            <div className="bg-gradient-to-r from-blue-600 to-blue-800 p-6 rounded-[2.5rem] text-white shadow-xl border-b-4 border-blue-900 mb-6">
                                 <div className="flex items-center gap-4 py-2">
                                     <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center text-white shadow-inner">
                                         <i className={`fas ${isStart ? 'fa-truck-loading' : 'fa-truck-ramp-box'} text-xl`}></i>
                                     </div>
                                     <div className="flex-1">
-                                        <p className="text-[11px] font-black text-white uppercase leading-tight">
+                                        <p className="text-sm font-black text-white uppercase leading-tight">
                                             {isStart ? 'Autorizar Início de Transporte' : 'Confirmar Descarregamento'}
                                         </p>
-                                        <p className="text-[8px] font-bold text-blue-100 uppercase tracking-widest mt-1">
+                                        <p className="text-[10px] font-bold text-blue-100 uppercase tracking-widest mt-1">
                                             {isStart ? 'Registe a foto da carga preparada' : 'Registe a foto no local de destino'}
                                         </p>
                                     </div>
                                 </div>
                                 {!isStart && (
-                                    <div className="mt-6 pt-4 border-t border-white/10 flex justify-between items-center">
-                                        <span className="text-[8px] font-black text-blue-200 uppercase tracking-widest">Tempo de Percurso</span>
-                                        <span className="text-lg font-mono font-black text-white tracking-tighter">{formatDuration(disposalElapsed)}</span>
+                                    <div className="mt-6 pt-4 border-t border-white/20 flex justify-between items-center">
+                                        <span className="text-[9px] font-black text-blue-100 uppercase tracking-widest">Tempo de Percurso</span>
+                                        <span className="text-xl font-mono font-black text-white tracking-tighter">{formatDuration(disposalElapsed)}</span>
                                     </div>
                                 )}
-                            </Card>
+                            </div>
 
                             <Card className="flex-1 min-h-[300px] flex flex-col justify-center bg-white border-2 border-slate-100 shadow-xl overflow-hidden relative">
                                 <div className="absolute top-4 left-4 z-10">
@@ -2892,13 +3170,24 @@
                                             `Qualquer tentativa de alterar os arquivos JSON ou EXCEL (CSV) dentro deste pacote invalidará esta assinatura.\n` +
                                             `Este certificado permite à Prefeitura verificar se houve fraude por parte da empresa contratada.`);
 
+                                        const exportEndTime = exportShift.journeyEndTime || Date.now();
+                                        exportShift.journeyEndTime = exportEndTime;
+                                        exportShift.active = false;
+
+                                        const exportJourneySec = Math.max(0, Math.floor((exportEndTime - (exportShift.journeyStartTime || exportEndTime)) / 1000));
+
                                         // Novo arquivo de detalhes do turno EXAUSTIVO para RAM
                                         const stringsTurno = [
                                             ["--- IDENTIFICAÇÃO GERAL ---", ""],
                                             ["DATA", exportShift.journeyDate],
                                             ["HORÁRIO ABERTURA", exportShift.journeyStartTime ? new Date(exportShift.journeyStartTime).toLocaleTimeString() : 'N/A'],
+                                            ["HORÁRIO ENCERRAMENTO", new Date(exportEndTime).toLocaleTimeString()],
+                                            ["DURAÇÃO TOTAL JORNADA", formatHMS(exportJourneySec)],
+                                            ["HM EFETIVO DO TURNO", formatHMS(stats.work)],
+                                            ["PAUSAS OPERACIONAIS", formatHMS(stats.pauses)],
+                                            ["OCIOSO / LOGÍSTICO", formatHMS(stats.logistics)],
                                             ["OPERADOR PRINCIPAL", exportShift.operador],
-                                            ["RESPONSÁVEL CONFERÊNCIA", exportShift.responsavel_empresa || 'N/A'],
+                                            ["RESPONSÁVEL CONFERÊNCIA", exportShift.responsavel_empresa || exportShift.rt || 'N/A'],
                                             ["LOCAL DA OPERAÇÃO", exportShift.bairro_local || 'N/A'],
                                             ["MUNCK (PLACA)", exportShift.placa],
                                             ["APOIO (PLACA)", exportShift.placaAux || 'N/A'],
